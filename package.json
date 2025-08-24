@@ -1,7 +1,7 @@
 {
-  "name": "career-co-pilot",
+  "name": "career-advisor",
   "version": "1.0.0",
-  "description": "AI-powered mock interview simulator for career preparation",
+  "description": "AI-powered personalized career and skills advisor with interactive skill graphs",
   "main": "index.js",
   "scripts": {
     "dev:client": "cd client && npm run dev",
@@ -15,14 +15,16 @@
   },
   "keywords": [
     "ai",
-    "interview",
     "career",
+    "skills",
+    "roadmap",
     "gemini",
     "google-cloud",
     "react",
-    "nodejs"
+    "nodejs",
+    "hackathon"
   ],
-  "author": "Career Co-pilot Team",
+  "author": "Career Advisor Team",
   "license": "MIT",
   "devDependencies": {
     "concurrently": "^8.2.2"

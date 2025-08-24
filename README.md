@@ -1,44 +1,39 @@
-# Career Co-pilot - Mock Interview Simulator
+# 🚀 Personalized Career and Skills Advisor
 
-A production-quality prototype web application that simulates technical interviews using AI. Users can practice interviews for specific job roles with an AI interviewer powered by Google's Gemini AI.
+A dynamic, AI-powered career advisory tool that analyzes user profiles, maps them to the current job market, and generates personalized, actionable career roadmaps. Built for the Google Cloud Gen AI Exchange hackathon.
 
-## Features
+## ✨ Features
 
-- **Mock Interview Simulator**: AI-powered interviewer that asks relevant questions based on job role
-- **Voice Interaction**: Speak your answers and hear AI responses
-- **Real-time Transcription**: Speech-to-text conversion using Google Cloud
-- **AI Evaluation**: Gemini AI provides feedback and follow-up questions
-- **Session Management**: Track and review interview conversations
+- **Resume Analysis**: PDF parsing and skill extraction using AI
+- **Market Trend Integration**: Real-time tech industry trend analysis
+- **Personalized Roadmaps**: AI-generated learning paths with visual skill graphs
+- **Interactive Visualization**: Clickable skill nodes with curated learning resources
+- **Smart Recommendations**: Context-aware skill suggestions based on interests and goals
 
-## Tech Stack
+## 🏗️ Architecture
 
 ### Frontend (`/client`)
-- React 18 with Vite and TypeScript
-- Tailwind CSS for styling
-- shadcn/ui components for polished UI
-- Axios for API communication
+- **React 18** with **Vite** and **TypeScript**
+- **Tailwind CSS** for modern, responsive styling
+- **shadcn/ui** components for polished UI
+- **PDF.js** for client-side resume parsing
+- **React Flow** for interactive skill graph visualization
+- **React Router** for navigation
 
 ### Backend (`/server`)
-- Node.js with Express and TypeScript
-- Google Cloud SDKs:
-  - Speech-to-Text API
-  - Text-to-Speech API
-  - Gemini AI API
-  - Firestore (for data persistence)
+- **Node.js** with **Express** and **TypeScript**
+- **Google Cloud Gemini AI** for intelligent analysis
+- **Firestore** for data persistence
+- **Hacker News API** for market trend analysis
 
-## Prerequisites
+## 🚀 Quick Start
 
-1. **Node.js** (v18 or higher)
-2. **Google Cloud Platform Account** with the following APIs enabled:
-   - Speech-to-Text API
-   - Text-to-Speech API
-   - Gemini AI API
-   - Firestore API
-3. **Google Cloud Service Account** with appropriate permissions
+### Prerequisites
+- Node.js (v18+)
+- Google Cloud Platform account
+- Gemini API key
 
-## Setup Instructions
-
-### 1. Clone and Install Dependencies
+### Installation
 
 ```bash
 # Install root dependencies
@@ -51,123 +46,118 @@ cd client && npm install
 cd ../server && npm install
 ```
 
-### 2. Google Cloud Configuration
+### Environment Setup
 
-1. Create a new Google Cloud project or select an existing one
-2. Enable the required APIs:
-   - Speech-to-Text API
-   - Text-to-Speech API
-   - Gemini AI API
-   - Firestore API
-3. Create a service account and download the JSON key file
-4. Place the service account key file in the `server` directory
-
-### 3. Environment Variables
-
-Create a `.env` file in the `server` directory:
-
+1. **Server Environment** (`server/.env`):
 ```env
-GOOGLE_APPLICATION_CREDENTIALS=./your-service-account-key.json
+GOOGLE_APPLICATION_CREDENTIALS=./service-account-key.json
 GOOGLE_CLOUD_PROJECT_ID=your-project-id
 GEMINI_API_KEY=your-gemini-api-key
 PORT=3001
 ```
 
-### 4. Run the Application
+2. **Client Environment** (`client/.env`):
+```env
+VITE_API_URL=http://localhost:3001
+```
+
+### Run the Application
 
 ```bash
-# Terminal 1: Start the backend server
-cd server
+# Start both services
 npm run dev
 
-# Terminal 2: Start the frontend client
-cd client
-npm run dev
+# Or start individually:
+npm run dev:server    # Backend on port 3001
+npm run dev:client    # Frontend on port 5173
 ```
 
-The application will be available at:
-- Frontend: http://localhost:5173
-- Backend: http://localhost:3001
+## 📱 User Flow
 
-## Usage
+1. **Onboarding**: Upload resume, define interests, set career goals
+2. **Analysis**: AI processes resume and generates skill profile
+3. **Dashboard**: View personalized roadmap with interactive skill graph
+4. **Interaction**: Click skill nodes for learning resources and details
 
-1. **Select Job Role**: Enter your target job role (e.g., "Junior DevOps Engineer")
-2. **Start Interview**: Click "Start Interview" and grant microphone access
-3. **Answer Questions**: Click "Record Answer", speak your response, then click "Stop Recording"
-4. **Receive Feedback**: Listen to AI feedback and the next question
-5. **Continue**: Repeat the process until you're satisfied with the interview
+## 🔧 API Endpoints
 
-## Project Structure
-
-```
-career_co-pilot/
-├── client/                 # Frontend React application
-│   ├── src/
-│   │   ├── components/    # React components
-│   │   ├── App.tsx        # Main application component
-│   │   └── main.tsx       # Application entry point
-│   ├── package.json       # Frontend dependencies
-│   └── tailwind.config.js # Tailwind CSS configuration
-├── server/                 # Backend Node.js application
-│   ├── src/
-│   │   ├── index.ts       # Express server setup
-│   │   └── interview.controller.ts # Interview logic
-│   ├── package.json       # Backend dependencies
-│   └── tsconfig.json      # TypeScript configuration
-├── package.json            # Root package.json for scripts
-└── README.md              # This file
-```
-
-## API Endpoints
-
-### POST /api/interview
-Processes user audio input and returns AI response.
+### POST `/api/generate-roadmap`
+Generates personalized career roadmap based on user input.
 
 **Request Body:**
 ```json
 {
-  "audio": "base64-encoded-audio-string",
-  "conversationHistory": [
-    {
-      "role": "user|model",
-      "parts": [{"text": "string"}]
-    }
-  ],
-  "jobRole": "string"
+  "resumeText": "string",
+  "interests": "string", 
+  "goal": "string"
 }
 ```
 
 **Response:**
 ```json
 {
-  "newHistory": [...],
-  "responseAudio": "base64-encoded-audio-string"
+  "nodes": [...],
+  "edges": [...],
+  "profileSummary": "string"
 }
 ```
 
-## Development
+## 🎯 Tech Highlights
 
-### Available Scripts
+- **Multi-Prompt AI Chain**: Sophisticated Gemini API integration
+- **Real-time Market Data**: Hacker News API integration for trends
+- **Interactive Graphs**: React Flow for skill visualization
+- **PDF Processing**: Client-side resume parsing
+- **Responsive Design**: Mobile-first Tailwind implementation
 
-```bash
-# Root level
-npm run dev:client    # Start frontend in development mode
-npm run dev:server    # Start backend in development mode
-npm run build         # Build both client and server
-npm run start         # Start production server
+## 📁 Project Structure
 
-# Client
-npm run dev           # Start Vite dev server
-npm run build         # Build for production
-npm run preview       # Preview production build
-
-# Server
-npm run dev           # Start with nodemon
-npm run build         # Build TypeScript
-npm run start         # Start production server
+```
+career-advisor/
+├── client/                 # React frontend
+│   ├── src/
+│   │   ├── components/    # UI components
+│   │   ├── pages/         # Route pages
+│   │   └── lib/           # Utilities
+│   └── package.json
+├── server/                 # Node.js backend
+│   ├── src/
+│   │   ├── controllers/   # API logic
+│   │   └── index.ts       # Server setup
+│   └── package.json
+└── package.json            # Root scripts
 ```
 
-## Contributing
+## 🎨 UI Components
+
+- **Multi-step Form**: Guided onboarding experience
+- **File Upload**: Drag-and-drop PDF resume handling
+- **Skill Graph**: Interactive node-based visualization
+- **Profile Summary**: AI-generated career insights
+- **Resource Modal**: Curated learning materials
+
+## 🔒 Security & Best Practices
+
+- Environment-based configuration
+- Input validation and sanitization
+- CORS protection
+- Google Cloud best practices
+- TypeScript for type safety
+
+## 🚀 Deployment
+
+```bash
+# Build for production
+npm run build
+
+# Deploy backend to Google Cloud Run
+cd server && npm run deploy
+
+# Deploy frontend to any static hosting
+cd client && npm run build
+```
+
+## 🤝 Contributing
 
 1. Fork the repository
 2. Create a feature branch
@@ -175,6 +165,6 @@ npm run start         # Start production server
 4. Test thoroughly
 5. Submit a pull request
 
-## License
+## 📄 License
 
-This project is created for hackathon purposes. Please ensure compliance with Google Cloud Platform terms of service and any applicable licensing requirements.
+Built for the Google Cloud Gen AI Exchange hackathon. Please ensure compliance with Google Cloud Platform terms of service.

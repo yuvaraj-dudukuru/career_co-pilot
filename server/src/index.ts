@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { interviewController } from './interview.controller';
+import { roadmapController } from './controllers/roadmap.controller';
 
 // Load environment variables
 dotenv.config();
@@ -25,8 +25,8 @@ app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// Main interview endpoint
-app.post('/api/interview', interviewController);
+// Main roadmap generation endpoint
+app.post('/api/generate-roadmap', roadmapController);
 
 // Error handling middleware
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -44,8 +44,8 @@ app.use('*', (req, res) => {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`🚀 Career Co-pilot server running on port ${PORT}`);
-  console.log(`📝 Interview endpoint: http://localhost:${PORT}/api/interview`);
+  console.log(`🚀 Career Advisor server running on port ${PORT}`);
+  console.log(`📝 Roadmap endpoint: http://localhost:${PORT}/api/generate-roadmap`);
   console.log(`🏥 Health check: http://localhost:${PORT}/health`);
 });
 
