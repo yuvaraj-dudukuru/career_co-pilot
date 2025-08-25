@@ -164,7 +164,3 @@ cd client && npm run build
 3. Make your changes
 4. Test thoroughly
 5. Submit a pull request
-
-## 📄 License
-
-Built for the Google Cloud Gen AI Exchange hackathon. Please ensure compliance with Google Cloud Platform terms of service.
