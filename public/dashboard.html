@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Career Co-Pilot - Your Career Dashboard</title>
+    <meta name="description" content="View your personalized career recommendations and learning plans">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">
+                    <img src="assets/logo.svg" alt="Career Co-Pilot Logo" class="logo-img">
+                    <h1 class="logo-text">Career Co-Pilot</h1>
+                </div>
+                <nav class="nav">
+                    <div id="userMenu" class="user-menu">
+                        <span id="userName" class="user-name"></span>
+                        <button id="profileBtn" class="btn btn-sm">Edit Profile</button>
+                        <button id="deleteDataBtn" class="btn btn-sm btn-danger">Delete My Data</button>
+                        <button id="signOutBtn" class="btn btn-outline">Sign Out</button>
+                    </div>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main">
+        <div class="container">
+            <!-- Dashboard Header -->
+            <section class="dashboard-header">
+                <div class="dashboard-intro">
+                    <h2 class="section-title">🎯 Your Career Roadmap</h2>
+                    <p class="section-subtitle">
+                        Based on your profile, here are your top 3 career recommendations with personalized learning plans
+                    </p>
+                </div>
+                
+                <!-- Fairness Notice -->
+                <div class="fairness-notice dashboard">
+                    <p>
+                        <strong>🔒 Fair & Transparent:</strong> These recommendations are based solely on your skills, 
+                        interests, and learning capacity. No sensitive attributes were considered.
+                    </p>
+                </div>
+            </section>
+
+            <!-- Recommendations Grid -->
+            <section id="recommendationsSection" class="recommendations-section">
+                <div id="recommendationsGrid" class="recommendations-grid">
+                    <!-- Recommendations will be populated here -->
+                </div>
+            </section>
+
+            <!-- Loading State -->
+            <section id="loadingSection" class="loading-section">
+                <div class="loading-content">
+                    <div class="loading-spinner large"></div>
+                    <h3>Loading your recommendations...</h3>
+                    <p>Please wait while we fetch your personalized career roadmap.</p>
+                </div>
+            </section>
+
+            <!-- Error State -->
+            <section id="errorSection" class="error-section" style="display: none;">
+                <div class="error-content">
+                    <h3>❌ Something went wrong</h3>
+                    <p id="errorMessage">Unable to load your recommendations.</p>
+                    <div class="error-actions">
+                        <button id="retryBtn" class="btn btn-primary">Try Again</button>
+                        <button id="goHomeBtn" class="btn btn-outline">Go Home</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- No Data State -->
+            <section id="noDataSection" class="no-data-section" style="display: none;">
+                <div class="no-data-content">
+                    <h3>📝 No recommendations yet</h3>
+                    <p>You haven't generated any career recommendations yet.</p>
+                    <button id="createProfileBtn" class="btn btn-primary">Create Profile</button>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Plan Modal -->
+    <div id="planModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">Learning Plan</h3>
+                <button id="closeModalBtn" class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="planContent">
+                    <!-- Plan content will be populated here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="downloadPdfBtn" class="btn btn-primary">
+                    📄 Download PDF
+                </button>
+                <button id="regenerateBtn" class="btn btn-outline">
+                    🔄 Regenerate Plan
+                </button>
+                <button id="closeModalBtn2" class="btn btn-secondary">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div id="deleteModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🗑️ Delete All Data</h3>
+                <button id="closeDeleteModalBtn" class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p><strong>Warning:</strong> This action cannot be undone.</p>
+                <p>This will permanently delete:</p>
+                <ul>
+                    <li>Your profile information</li>
+                    <li>All career recommendations</li>
+                    <li>Learning plans</li>
+                    <li>Usage analytics</li>
+                </ul>
+                <p>Are you sure you want to proceed?</p>
+            </div>
+            <div class="modal-footer">
+                <button id="confirmDeleteBtn" class="btn btn-danger">Yes, Delete Everything</button>
+                <button id="cancelDeleteBtn" class="btn btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Scripts -->
+    <script type="module" src="app.js"></script>
+    <script type="module" src="api.js"></script>
+    <script type="module" src="ui.js"></script>
+    <script type="module" src="dashboard.js"></script>
+</body>
+</html>
