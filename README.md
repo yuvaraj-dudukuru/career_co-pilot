@@ -427,29 +427,11 @@ Health check endpoint.
 
 ### **Development Setup**
 1. Fork the repository
-2. Create feature branch
-3. Make changes with tests
-4. Submit pull request
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
 
-### **Code Style**
-- Use ES6+ features
-- Follow JSDoc conventions
-- Maintain consistent formatting
-- Add error handling
+## 📄 License
 
-## 📄 **License**
-
-This project is built for the Google Cloud Gen AI Exchange hackathon. All rights reserved.
-
-## 📞 **Support**
-
-For hackathon-related questions or technical issues:
-- **Email**: [your-email@domain.com]
-- **GitHub Issues**: [repository-issues-url]
-- **Documentation**: [this-readme]
-
----
-
-**Built with ❤️ for the Google Cloud Gen AI Exchange Hackathon**
-
-*Career Co-Pilot - Your AI Career Companion*
+Built for the Google Cloud Gen AI Exchange hackathon. Please ensure compliance with Google Cloud Platform terms of service.
