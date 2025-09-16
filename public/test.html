@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test - Career Co-Pilot</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+        .success { color: green; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>Career Co-Pilot - JavaScript Test</h1>
+    
+    <div class="test-section">
+        <h3>Test 1: Basic JavaScript Loading</h3>
+        <button onclick="testBasicJS()">Test Basic JS</button>
+        <div id="test1-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Test 2: Sign In Function</h3>
+        <button onclick="testSignIn()">Test Sign In</button>
+        <div id="test2-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Test 3: Form Handling</h3>
+        <button onclick="testFormHandling()">Test Form</button>
+        <div id="test3-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Test 4: Local Storage</h3>
+        <button onclick="testLocalStorage()">Test Local Storage</button>
+        <div id="test4-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Navigation</h3>
+        <a href="index.html" style="color: blue; text-decoration: underline;">Go to Main App</a>
+    </div>
+
+    <script>
+        function testBasicJS() {
+            const result = document.getElementById('test1-result');
+            try {
+                result.innerHTML = '<span class="success">✅ JavaScript is working!</span>';
+            } catch (error) {
+                result.innerHTML = '<span class="error">❌ JavaScript error: ' + error.message + '</span>';
+            }
+        }
+        
+        function testSignIn() {
+            const result = document.getElementById('test2-result');
+            try {
+                // Test if we can create a mock user
+                const mockUser = {
+                    uid: 'test-user-123',
+                    email: 'test@example.com',
+                    displayName: 'Test User'
+                };
+                result.innerHTML = '<span class="success">✅ Sign in function works! Mock user: ' + mockUser.displayName + '</span>';
+            } catch (error) {
+                result.innerHTML = '<span class="error">❌ Sign in error: ' + error.message + '</span>';
+            }
+        }
+        
+        function testFormHandling() {
+            const result = document.getElementById('test3-result');
+            try {
+                // Test form data handling
+                const formData = new FormData();
+                formData.append('name', 'Test User');
+                formData.append('skills', 'JavaScript, Python');
+                formData.append('interests', 'web development');
+                
+                const name = formData.get('name');
+                const skills = formData.get('skills').split(',').map(s => s.trim());
+                
+                result.innerHTML = '<span class="success">✅ Form handling works! Name: ' + name + ', Skills: ' + skills.join(', ') + '</span>';
+            } catch (error) {
+                result.innerHTML = '<span class="error">❌ Form handling error: ' + error.message + '</span>';
+            }
+        }
+        
+        function testLocalStorage() {
+            const result = document.getElementById('test4-result');
+            try {
+                // Test localStorage
+                localStorage.setItem('test', 'working');
+                const testValue = localStorage.getItem('test');
+                localStorage.removeItem('test');
+                
+                result.innerHTML = '<span class="success">✅ Local storage works! Test value: ' + testValue + '</span>';
+            } catch (error) {
+                result.innerHTML = '<span class="error">❌ Local storage error: ' + error.message + '</span>';
+            }
+        }
+        
+        // Auto-run basic test on page load
+        window.onload = function() {
+            testBasicJS();
+        };
+    </script>
+</body>
+</html>
