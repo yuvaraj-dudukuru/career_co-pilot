@@ -19,6 +19,10 @@ export const RecommendationItemSchema = z.object({
   roleId: z.string().min(1).max(50),
   title: z.string().min(1).max(100),
   fitScore: z.number().min(0).max(100),
+  metrics: z.object({
+    cosine: z.number().min(0).max(1),
+    overlapRatio: z.number().min(0).max(1)
+  }).optional(),
   why: z.string().min(10).max(600),
   overlapSkills: z.array(z.string()).max(20),
   gapSkills: z.array(z.string()).max(20),

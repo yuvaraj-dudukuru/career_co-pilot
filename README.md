@@ -89,6 +89,12 @@ cp env.example .env
 GEMINI_API_KEY=your_actual_api_key_here
 ```
 
+Env vars must never be committed. Leave keys blank in source. Alternatively, set via Firebase:
+```bash
+firebase functions:config:set gemini.key="YOUR_KEY_HERE"
+firebase functions:config:set allowed.origin="http://localhost:5000"
+```
+
 ### **5. Update Firebase Config**
 Edit `public/app.js` and replace the Firebase config with your actual values:
 ```javascript
@@ -112,6 +118,35 @@ firebase deploy --only hosting
 firebase deploy --only functions
 firebase deploy --only firestore
 ```
+
+## 🔐 Authentication
+
+Configure Firebase Auth providers (Google, Email/Password) in Firebase Console. In `public/app.js` provide your Firebase config values (leave blank in source; document them in `.env.local` or README). The client attaches the Firebase ID token as a Bearer header to protected endpoints.
+
+## 🧠 Deterministic Matching & Fit Score
+
+Server computes vectors and metrics and returns raw numbers:
+- cosine similarity (0–1)
+- overlapRatio (0–1)
+- fitScore = round((0.6*cosine + 0.4*overlapRatio)*100)
+
+## 🧪 Tests
+
+Run tests for functions:
+```bash
+cd functions
+npm test
+```
+
+## 🧰 Local Emulators
+
+```bash
+firebase emulators:start
+```
+
+## 📝 Manual Test Plan
+
+See `manual_test_plan.md` for personas and expected behavior.
 
 ## 🧪 **Local Development**
 

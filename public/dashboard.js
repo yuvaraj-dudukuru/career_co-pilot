@@ -78,39 +78,56 @@ function displayRecommendations(recommendations) {
 function createRecommendationCard(recommendation, index) {
   const card = document.createElement('div');
   card.className = 'recommendation-card';
+  const fit = recommendation.fitScore ?? 0;
+  const cosine = recommendation.metrics?.cosine ?? null;
+  const overlapRatio = recommendation.metrics?.overlapRatio ?? null;
+  const overlap = recommendation.overlapSkills || recommendation.skills?.overlapping || [];
+  const gaps = recommendation.gapSkills || recommendation.skills?.gaps || [];
+  const why = recommendation.why || recommendation.description || '';
+  const title = recommendation.title || recommendation.role || 'Role';
+
   card.innerHTML = `
     <div class="recommendation-header">
       <div>
-        <h3 class="recommendation-title">${recommendation.role}</h3>
-        <p class="recommendation-why">${recommendation.description}</p>
+        <h3 class="recommendation-title">${title}</h3>
+        <p class="recommendation-why">${why}</p>
+        <p class="method-note">
+          <small>Score derived from cosine similarity & skill overlap. <a href="#" class="methodology-open">Methodology</a></small>
+          ${cosine !== null && overlapRatio !== null ? `<br/><small>cosine: ${cosine.toFixed(2)}, overlap: ${overlapRatio.toFixed(2)}</small>` : ''}
+        </p>
       </div>
-      <div class="fit-score">${recommendation.fitScore}%</div>
+      <div class="fit-score">
+        <div class="fit-score-value">${fit}</div>
+        <div class="fit-score-bar">
+          <div class="fit-score-fill" style="width:${Math.max(0, Math.min(100, fit))}%"></div>
+        </div>
+      </div>
     </div>
     
     <div class="skills-section">
       <h4 class="skills-title">Your Matching Skills</h4>
       <div class="skills-tags">
-        ${recommendation.skills.overlapping.map(skill => 
-          `<span class="skill-tag overlap">${skill}</span>`
-        ).join('')}
+        ${overlap.map(skill => `<span class="skill-tag overlap">${skill}</span>`).join('')}
       </div>
     </div>
     
     <div class="skills-section">
       <h4 class="skills-title">Skills to Learn</h4>
       <div class="skills-tags">
-        ${recommendation.skills.gaps.slice(0, 6).map(skill => 
-          `<span class="skill-tag gap">${skill}</span>`
-        ).join('')}
+        ${gaps.slice(0, 8).map(skill => `<span class="skill-tag gap">${skill}</span>`).join('')}
       </div>
     </div>
     
     <div class="recommendation-actions">
-      <button class="btn btn-primary" onclick="viewLearningPlan(${index})">
-        📚 View Learning Plan
-      </button>
+      <button class="btn btn-primary view-plan-btn" data-index="${index}">📚 View Learning Plan</button>
     </div>
   `;
+
+  // link methodology
+  const link = card.querySelector('.methodology-open');
+  if (link) link.addEventListener('click', (e) => { e.preventDefault(); showMethodologyModal(); });
+  const viewBtn = card.querySelector('.view-plan-btn');
+  if (viewBtn) viewBtn.addEventListener('click', () => viewLearningPlan(index));
   
   return card;
 }
@@ -259,6 +276,20 @@ function setupModalEventListeners() {
   }
 }
 
+// Methodology modal control
+function showMethodologyModal() {
+  const m = document.getElementById('methodologyModal');
+  if (!m) return;
+  m.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+function hideMethodologyModal() {
+  const m = document.getElementById('methodologyModal');
+  if (!m) return;
+  m.style.display = 'none';
+  document.body.style.overflow = 'auto';
+}
+
 /**
  * Setup dashboard-specific event listeners
  */
@@ -282,7 +313,69 @@ function setupDashboardEventListeners() {
   if (regenerateBtn) {
     regenerateBtn.addEventListener('click', regenerateLearningPlan);
   }
+
+  const methodologyLink = document.getElementById('methodologyLink');
+  if (methodologyLink) methodologyLink.addEventListener('click', (e) => { e.preventDefault(); showMethodologyModal(); });
+  const closeMethodologyBtn = document.getElementById('closeMethodologyBtn');
+  if (closeMethodologyBtn) closeMethodologyBtn.addEventListener('click', hideMethodologyModal);
+  const closeMethodologyBtn2 = document.getElementById('closeMethodologyBtn2');
+  if (closeMethodologyBtn2) closeMethodologyBtn2.addEventListener('click', hideMethodologyModal);
+
+  const shareBtn = document.getElementById('sharePlanBtn');
+  if (shareBtn) {
+    shareBtn.addEventListener('click', async () => {
+      try {
+        if (currentRecommendationIndex === null) return alert('Open a learning plan first');
+        const recId = getCurrentRecommendationId();
+        if (!recId) return alert('Recommendation ID not available');
+        const { token } = await window.api.createShareToken(recId);
+        const shareUrl = `${window.location.origin}/dashboard.html?token=${encodeURIComponent(token)}`;
+        await copyToClipboard(shareUrl);
+        alert('Share link copied to clipboard!');
+      } catch (e) {
+        console.error('Share failed', e);
+        alert('Failed to create share link');
+      }
+    });
+  }
 }
+
+function getCurrentRecommendationId() {
+  // If recommendationId was stored alongside recommendations, use it
+  try {
+    const data = JSON.parse(localStorage.getItem('recommendations') || '{}');
+    return data.recommendationId || null;
+  } catch (_) { return null; }
+}
+
+async function copyToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text);
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+  }
+}
+
+// Support viewing via share token (read-only)
+document.addEventListener('DOMContentLoaded', async () => {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get('token');
+  if (token) {
+    try {
+      const { recommendation } = await window.api.viewSharedPlan(token);
+      currentRecommendations = recommendation.top3Recommendations || [];
+      displayRecommendations(currentRecommendations);
+      // Hide header actions for read-only view
+      const userMenu = document.getElementById('userMenu');
+      if (userMenu) userMenu.style.display = 'none';
+    } catch (e) {
+      console.error('Failed to load shared plan', e);
+      showErrorState('Invalid or expired share link');
+    }
+  }
+});
 
 /**
  * Show plan modal
@@ -314,49 +407,20 @@ function downloadLearningPlanPDF() {
     alert('No learning plan selected');
     return;
   }
-  
-  const recommendation = currentRecommendations[currentRecommendationIndex];
-  
-  // Create a simple text-based PDF content
-  let pdfContent = `
-Career Co-Pilot - Learning Plan
-${recommendation.role}
-Generated on: ${new Date().toLocaleDateString()}
-
-Fit Score: ${recommendation.fitScore}%
-Description: ${recommendation.description}
-
-LEARNING PLAN:
-
-`;
-
-  recommendation.learningPlan.weeks.forEach(week => {
-    pdfContent += `
-Week ${week.week}:
-Topics to Learn:
-${week.topics.map(topic => `- ${topic}`).join('\n')}
-
-Practice Activities:
-${week.practice}
-
-Assessment:
-${week.assessment}
-
-`;
-  });
-  
-  // Create and download file
-  const blob = new Blob([pdfContent], { type: 'text/plain' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${recommendation.role.replace(/\s+/g, '_')}_Learning_Plan.txt`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  
-  alert('Learning plan downloaded successfully!');
+  const recId = getCurrentRecommendationId();
+  if (!recId) {
+    window.print();
+    return;
+  }
+  window.api.requestPrintableHtml(recId)
+    .then(({ html }) => {
+      const w = window.open('', '_blank');
+      if (!w) return window.print();
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+    })
+    .catch(() => window.print());
 }
 
 /**

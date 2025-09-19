@@ -89,6 +89,24 @@ a:hover {
   box-shadow: var(--shadow-sm);
 }
 
+/* Fit score styles */
+.fit-score { display: flex; flex-direction: column; align-items: flex-end; min-width: 90px; }
+.fit-score-value { font-size: 1.75rem; font-weight: 700; color: var(--primary-color); line-height: 1; }
+.fit-score-bar { width: 120px; height: 8px; background: var(--bg-muted); border-radius: 999px; margin-top: 8px; overflow: hidden; }
+.fit-score-fill { height: 100%; background: var(--primary-color); }
+.method-note small { color: var(--text-muted); }
+
+/* Print styles (A4) */
+@media print {
+  @page { size: A4; margin: 12mm; }
+  body { background: #fff; color: #000; }
+  .header, .nav, .footer, .modal-close, .btn, .user-menu, .fairness-notice.dashboard { display: none !important; }
+  .recommendations-section, .dashboard-header { page-break-inside: avoid; }
+  .modal { display: block !important; position: static; box-shadow: none; }
+  .modal-content { box-shadow: none; border: none; }
+  .skills-tags .skill-tag { border: 1px solid #ccc; }
+}
+
 .header-content {
   display: flex;
   justify-content: space-between;

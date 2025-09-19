@@ -18,6 +18,12 @@ service cloud.firestore {
     }
 
     match /analytics/{docId} {
+      allow write: if isSignedIn();
+      allow read: if false;
+    }
+
+    // Share tokens are created and read server-side only
+    match /shareTokens/{docId} {
       allow read, write: if isSignedIn();
     }
   }

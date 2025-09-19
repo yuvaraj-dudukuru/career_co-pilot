@@ -25,6 +25,23 @@ export function cosine(a, b) {
 }
 
 /**
+ * Compute overlap ratio between user skills and role skills
+ * Denominator: number of distinct skills in the role definition
+ * @param {string[]} userSkills
+ * @param {Object} role
+ * @returns {number} in [0,1]
+ */
+export function overlapRatio(userSkills, role) {
+  const userSet = new Set((userSkills || []).map(s => s.toLowerCase().trim()));
+  const roleSkillNames = (role.skills || []).map(s => s.name.toLowerCase().trim());
+  const roleSet = new Set(roleSkillNames);
+  if (roleSet.size === 0) return 0;
+  let overlapCount = 0;
+  roleSet.forEach(s => { if (userSet.has(s)) overlapCount += 1; });
+  return overlapCount / roleSet.size;
+}
+
+/**
  * Build user skill vector from skills array
  * @param {string[]} skills - Array of skill names
  * @returns {Object} Skill vector (skill -> weight)
@@ -63,6 +80,21 @@ export function cleanupJsonString(s) {
     .replace(/^[^{]*/, '') // Remove anything before first {
     .replace(/[^}]*$/, '') // Remove anything after last }
     .trim();
+}
+
+/**
+ * Additional cleaner to strip HTML/markdown artifacts
+ * @param {string} s
+ * @returns {string}
+ */
+export function cleanLLMOutput(s) {
+  if (!s) return '';
+  return cleanupJsonString(
+    s
+      .replace(/<[^>]*>/g, '') // strip HTML tags
+      .replace(/^[\s\S]*?\{/, '{') // keep from first {
+      .replace(/\}[\s\S]*$/, '}') // keep until last }
+  );
 }
 
 /**
@@ -124,11 +156,24 @@ export function calculateSkillOverlap(userSkills, role) {
 }
 
 /**
+ * Format fit score per methodology: round((0.6*cosine + 0.4*overlapRatio)*100)
+ * @param {number} cosineValue in [0,1]
+ * @param {number} overlap in [0,1]
+ */
+export function formatFitScore(cosineValue, overlap) {
+  const raw = 0.6 * (Number(cosineValue) || 0) + 0.4 * (Number(overlap) || 0);
+  const pct = Math.round(raw * 100);
+  return Math.max(0, Math.min(100, pct));
+}
+
+/**
  * Sanitize user profile input
  * @param {Object} profile - Raw profile input
  * @returns {Object} Sanitized profile
  */
 export function sanitizeProfile(profile) {
+  // Intentionally exclude sensitive attributes if present
+  const { gender, caste, religion, address, collegeTier, ...rest } = profile || {};
   return {
     name: (profile.name || '').slice(0, 80),
     education: (profile.education || 'Other').slice(0, 40),

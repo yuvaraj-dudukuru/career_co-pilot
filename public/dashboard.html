@@ -45,7 +45,8 @@
                 <div class="fairness-notice dashboard">
                     <p>
                         <strong>🔒 Fair & Transparent:</strong> These recommendations are based solely on your skills, 
-                        interests, and learning capacity. No sensitive attributes were considered.
+                        interests, and learning capacity. No sensitive attributes were considered. 
+                        <a href="#" id="methodologyLink">How scoring works</a>
                     </p>
                 </div>
             </section>
@@ -105,10 +106,35 @@
                 <button id="downloadPdfBtn" class="btn btn-primary">
                     📄 Download PDF
                 </button>
+                <button id="sharePlanBtn" class="btn btn-outline">
+                    🔗 Share Plan
+                </button>
                 <button id="regenerateBtn" class="btn btn-outline">
                     🔄 Regenerate Plan
                 </button>
                 <button id="closeModalBtn2" class="btn btn-secondary">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Methodology Modal -->
+    <div id="methodologyModal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Methodology</h3>
+                <button id="closeMethodologyBtn" class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>We compute a transparent fit score combining vector similarity and skill overlap:</p>
+                <ul>
+                    <li><strong>Cosine similarity</strong> between your skill vector and the role's weighted skill vector</li>
+                    <li><strong>Overlap ratio</strong> = matching skills / total role skills</li>
+                </ul>
+                <p><strong>Fit score</strong> = round((0.6 × cosine + 0.4 × overlapRatio) × 100).</p>
+                <p>We also show overlapping skills (green) and gaps to learn (red). Sensitive attributes are excluded.</p>
+            </div>
+            <div class="modal-footer">
+                <button id="closeMethodologyBtn2" class="btn btn-secondary">Close</button>
             </div>
         </div>
     </div>
@@ -141,10 +167,14 @@
     <!-- Toast Container -->
     <div id="toastContainer" class="toast-container"></div>
 
-    <!-- Scripts -->
-    <script type="module" src="app.js"></script>
-    <script type="module" src="api.js"></script>
-    <script type="module" src="ui.js"></script>
-    <script type="module" src="dashboard.js"></script>
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    <!-- App Scripts -->
+    <script src="api.js"></script>
+    <script src="ui.js"></script>
+    <script src="app.js"></script>
+    <script src="dashboard.js"></script>
 </body>
 </html>

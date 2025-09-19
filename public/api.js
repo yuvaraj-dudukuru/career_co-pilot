@@ -75,6 +75,37 @@ async function deleteUserData() {
 }
 
 /**
+ * Create a time-limited share token for a recommendation
+ * @param {string} recommendationId
+ */
+async function createShareToken(recommendationId) {
+  return makeAuthenticatedRequest(`/share/${recommendationId}`, {
+    method: 'POST'
+  });
+}
+
+/**
+ * View a shared recommendation by token (public)
+ * @param {string} token
+ */
+async function viewSharedPlan(token) {
+  const response = await fetch(`/api/share/view/${token}`);
+  if (!response.ok) throw new Error('Failed to fetch shared plan');
+  return response.json();
+}
+
+/**
+ * Request printable HTML for a recommendation (server-side generation)
+ * @param {string} recommendationId
+ */
+async function requestPrintableHtml(recommendationId) {
+  return makeAuthenticatedRequest('/generate_pdf', {
+    method: 'POST',
+    body: JSON.stringify({ recommendationId })
+  });
+}
+
+/**
  * Health check
  * @returns {Promise<Object>} Health status
  */

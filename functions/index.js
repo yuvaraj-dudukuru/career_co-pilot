@@ -1,13 +1,17 @@
 import express from 'express';
 import cors from 'cors';
 import fetch from 'node-fetch';
+import crypto from 'crypto';
 import admin from 'firebase-admin';
 import { 
-  cleanupJsonString, 
+  cleanupJsonString,
+  cleanLLMOutput,
   cosine, 
   buildUserVector, 
   buildRoleVector, 
   calculateSkillOverlap,
+  overlapRatio,
+  formatFitScore,
   sanitizeProfile,
   logAnalytics
 } from './utils.js';
@@ -83,7 +87,7 @@ function getGeminiApiKey() {
 /**
  * Make API call to Gemini
  */
-async function geminiCall(messages, model = 'gemini-1.5-flash-latest') {
+async function geminiCall(messages, model = 'gemini-1.5-flash') {
   const apiKey = getGeminiApiKey();
   if (!apiKey) {
     throw new Error('Gemini API key not configured');
@@ -98,11 +102,16 @@ async function geminiCall(messages, model = 'gemini-1.5-flash-latest') {
     }))
   };
 
+  // Timeout controller (15s max)
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    signal: controller.signal
   });
+  clearTimeout(timeout);
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -128,17 +137,20 @@ function calculateTop3Roles(profile) {
   const scoredRoles = roles.map(role => {
     const roleVector = buildRoleVector(role);
     const cosineScore = cosine(userVector, roleVector);
-    
-    const { overlap } = calculateSkillOverlap(profile.skills, role);
-    const overlapRatio = overlap.length / Math.max(1, role.skills.length);
-    
-    // Base score: 60% cosine similarity + 40% overlap ratio
-    const baseScore = 0.6 * cosineScore + 0.4 * overlapRatio;
-    
+    const { overlap, gaps } = calculateSkillOverlap(profile.skills, role);
+    const oRatio = overlapRatio(profile.skills, role);
+    // Fit score formula
+    const score = formatFitScore(cosineScore, oRatio);
+
     return {
       role,
-      score: Math.round(baseScore * 100),
-      overlap
+      score,
+      overlap,
+      gaps,
+      metrics: {
+        cosine: Number(cosineScore.toFixed(4)),
+        overlapRatio: Number(oRatio.toFixed(4))
+      }
     };
   });
 
@@ -146,6 +158,28 @@ function calculateTop3Roles(profile) {
   return scoredRoles
     .sort((a, b) => b.score - a.score)
     .slice(0, 3);
+}
+
+/**
+ * Deterministic fallback learning plan based on top gaps
+ */
+function deterministicFallbackPlan(profile, gapSkills, roleTitle) {
+  const topGaps = (gapSkills || []).slice(0, 6);
+  const hours = profile.weeklyTime || 6;
+  const weeks = [1,2,3,4].map((w, i) => ({
+    week: w,
+    topics: [
+      i === 0 ? `Foundations of ${roleTitle}` : `Deep dive: ${topGaps[i % Math.max(1, topGaps.length)]}`,
+      i < topGaps.length ? `Concepts: ${topGaps[i]}` : 'Practice & review'
+    ],
+    practice: [
+      'Hands-on exercises (free tutorials, official docs)',
+      'Implement small features or scripts'
+    ],
+    assessment: 'Self-check with quizzes or coding challenges',
+    project: i === 3 ? `Capstone: Build a small ${roleTitle} portfolio piece` : 'Mini project applying weekly topics'
+  }));
+  return { weeks };
 }
 
 /**
@@ -170,10 +204,10 @@ async function generateLearningPlan(profile, gapSkills, roleTitle) {
   try {
     // First attempt with Flash model for speed
     const prompt = buildPlanPrompt(profile, gapSkills, roleTitle);
-    let response = await geminiCall(prompt, 'gemini-1.5-flash-latest');
+    let response = await geminiCall(prompt, 'gemini-1.5-flash');
     
     // Clean up response
-    let cleaned = cleanupJsonString(response);
+    let cleaned = cleanLLMOutput(response);
     let planJson;
     
     try {
@@ -183,8 +217,8 @@ async function generateLearningPlan(profile, gapSkills, roleTitle) {
       
       // Retry with Pro model for better JSON generation
       const retryPrompt = buildRetryPrompt(cleaned);
-      const retryResponse = await geminiCall(retryPrompt, 'gemini-1.5-pro-latest');
-      cleaned = cleanupJsonString(retryResponse);
+      const retryResponse = await geminiCall(retryPrompt, 'gemini-1.5-pro');
+      cleaned = cleanLLMOutput(retryResponse);
       
       try {
         planJson = JSON.parse(cleaned);
@@ -204,7 +238,8 @@ async function generateLearningPlan(profile, gapSkills, roleTitle) {
     return validation.data;
   } catch (error) {
     console.error('Learning plan generation failed:', error);
-    throw error;
+    // Fallback to deterministic template
+    return deterministicFallbackPlan(profile, gapSkills, roleTitle);
   }
 }
 
@@ -248,10 +283,8 @@ app.post('/api/recommend', verifyAuth, async (req, res) => {
     // Generate recommendations for each role
     const recommendations = [];
     
-    for (const { role, score, overlap } of topRoles) {
+    for (const { role, score, overlap, gaps, metrics } of topRoles) {
       try {
-        const { gaps } = calculateSkillOverlap(profile.skills, role);
-        
         // Generate explanation
         const why = await generateExplanation(profile, role, overlap, gaps);
         
@@ -262,6 +295,7 @@ app.post('/api/recommend', verifyAuth, async (req, res) => {
           roleId: role.roleId,
           title: role.title,
           fitScore: score,
+          metrics,
           why: why,
           overlapSkills: overlap,
           gapSkills: gaps,
@@ -322,8 +356,8 @@ app.post('/api/recommend', verifyAuth, async (req, res) => {
       userAgent: req.headers['user-agent']
     });
 
-    // Return response
-    res.json(finalResponse);
+    // Return response including recommendationId for client share links
+    res.json({ recommendationId: recommendationRef.id, ...finalResponse });
     
   } catch (error) {
     console.error('Recommendation generation failed:', error);
@@ -343,6 +377,60 @@ app.post('/api/recommend', verifyAuth, async (req, res) => {
       error: 'Failed to generate recommendations',
       message: error.message || 'Internal server error'
     });
+  }
+});
+
+/**
+ * Create time-limited share token for a recommendation (24h expiry)
+ */
+app.post('/api/share/:recommendationId', verifyAuth, async (req, res) => {
+  try {
+    const firestore = admin.firestore();
+    const { recommendationId } = req.params;
+
+    // Generate random token
+    const token = crypto.randomBytes(24).toString('hex');
+    const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
+
+    const tokenDoc = firestore.collection('shareTokens').doc(token);
+    await tokenDoc.set({
+      uid: req.uid,
+      recommendationId,
+      expiresAt,
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    res.json({ token, expiresAt });
+  } catch (error) {
+    console.error('Create share token failed:', error);
+    res.status(500).json({ error: 'Failed to create share token' });
+  }
+});
+
+/**
+ * View shared plan via token (read-only, no auth required)
+ */
+app.get('/api/share/view/:token', async (req, res) => {
+  try {
+    const firestore = admin.firestore();
+    const { token } = req.params;
+    const doc = await firestore.collection('shareTokens').doc(token).get();
+    if (!doc.exists) return res.status(404).json({ error: 'Invalid token' });
+    const data = doc.data();
+    if (!data.expiresAt || Date.now() > data.expiresAt) {
+      return res.status(410).json({ error: 'Token expired' });
+    }
+
+    const recRef = firestore
+      .collection('users').doc(data.uid)
+      .collection('recommendations').doc(data.recommendationId);
+    const recDoc = await recRef.get();
+    if (!recDoc.exists) return res.status(404).json({ error: 'Recommendation not found' });
+
+    res.json({ recommendation: recDoc.data() });
+  } catch (error) {
+    console.error('View shared plan failed:', error);
+    res.status(500).json({ error: 'Failed to fetch shared plan' });
   }
 });
 
@@ -393,6 +481,79 @@ app.post('/api/delete_user_data', verifyAuth, async (req, res) => {
   }
 });
 
+/**
+ * Generate printable HTML for a recommendation plan (optional server-side PDF flow)
+ */
+app.post('/api/generate_pdf', verifyAuth, async (req, res) => {
+  try {
+    const { recommendationId } = req.body || {};
+    if (!recommendationId) {
+      return res.status(400).json({ error: 'recommendationId is required' });
+    }
+
+    const firestore = admin.firestore();
+    const recRef = firestore
+      .collection('users').doc(req.uid)
+      .collection('recommendations').doc(recommendationId);
+    const recDoc = await recRef.get();
+    if (!recDoc.exists) return res.status(404).json({ error: 'Recommendation not found' });
+
+    const rec = recDoc.data();
+    const title = 'Career Roadmap';
+    const dateStr = new Date().toLocaleDateString();
+
+    // Build simple printable HTML
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${title}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 16mm; }
+    h1 { margin: 0 0 8px 0; }
+    .meta { color: #666; margin-bottom: 16px; }
+    .card { border: 1px solid #ddd; padding: 12px; margin-bottom: 16px; }
+    .skills { margin: 8px 0; }
+    .chip { display: inline-block; padding: 3px 8px; border-radius: 12px; margin: 2px; font-size: 12px; border: 1px solid #ccc; }
+    .overlap { background: #e8f7ef; border-color: #a8e0c5; }
+    .gap { background: #fdecea; border-color: #f5b5ae; }
+    .week { border-top: 1px solid #eee; padding-top: 8px; margin-top: 8px; }
+    @page { size: A4; margin: 12mm; }
+  </style>
+  <script>window.onload = function(){ window.print(); }</script>
+  </head>
+<body>
+  <h1>${title}</h1>
+  <div class="meta">Generated on ${dateStr}</div>
+  ${(rec.top3Recommendations || []).map(r => `
+    <div class="card">
+      <h2>${r.title} — Fit ${r.fitScore}%</h2>
+      ${r.metrics ? `<div class="meta">cosine: ${Number(r.metrics.cosine).toFixed(2)}, overlap: ${Number(r.metrics.overlapRatio).toFixed(2)}</div>` : ''}
+      <p>${r.why || ''}</p>
+      <div class="skills">
+        <div><strong>Matching Skills:</strong> ${(r.overlapSkills||[]).map(s=>`<span class="chip overlap">${s}</span>`).join(' ')}</div>
+        <div><strong>Skills to Learn:</strong> ${(r.gapSkills||[]).map(s=>`<span class="chip gap">${s}</span>`).join(' ')}</div>
+      </div>
+      ${(r.plan?.weeks || []).map(w => `
+        <div class="week">
+          <h3>Week ${w.week}</h3>
+          <p><strong>Topics:</strong> ${(w.topics||[]).join(', ')}</p>
+          <p><strong>Practice:</strong> ${(Array.isArray(w.practice)?w.practice:[w.practice]).join(', ')}</p>
+          <p><strong>Assessment:</strong> ${w.assessment || ''}</p>
+          <p><strong>Project:</strong> ${w.project || ''}</p>
+        </div>
+      `).join('')}
+    </div>
+  `).join('')}
+</body>
+</html>`;
+
+    res.json({ html });
+  } catch (error) {
+    console.error('Generate PDF failed:', error);
+    res.status(500).json({ error: 'Failed to generate printable HTML' });
+  }
+});
 /**
  * Health check endpoint
  */

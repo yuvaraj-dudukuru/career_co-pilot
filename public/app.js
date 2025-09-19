@@ -1,7 +1,22 @@
 /**
- * Career Co-Pilot - Main Application File (Demo Version)
- * Simplified version for hackathon demo without Firebase dependencies
+ * Career Co-Pilot - Main Application File
+ * Firebase init, auth flows, and API wiring for recommendations
  */
+
+// Firebase configuration (PLACEHOLDER - fill via Firebase Console/project config)
+const firebaseConfig = {
+  apiKey: "",
+  authDomain: "",
+  projectId: "",
+  storageBucket: "",
+  messagingSenderId: "",
+  appId: ""
+};
+
+// Initialize Firebase (safe guard if SDK loaded)
+if (typeof firebase !== 'undefined' && !firebase.apps?.length) {
+  try { firebase.initializeApp(firebaseConfig); } catch (e) { console.warn('Firebase init failed:', e); }
+}
 
 // Global state
 let currentUser = null;
@@ -11,15 +26,22 @@ let userProfile = null;
  * Initialize the application
  */
 function initApp() {
-  console.log('Initializing Career Co-Pilot Demo...');
+  console.log('Initializing Career Co-Pilot...');
+  
+  // Auth state listener
+  if (typeof firebase !== 'undefined' && firebase.auth) {
+    firebase.auth().onAuthStateChanged((user) => {
+      currentUser = user || null;
+      if (currentUser) {
+        showAuthenticatedUI(currentUser);
+      } else {
+        showUnauthenticatedUI();
+      }
+    });
+  }
   
   // Set up UI event listeners
   setupEventListeners();
-  
-  // Show welcome section by default
-  showUnauthenticatedUI();
-  
-  console.log('Career Co-Pilot Demo initialized successfully');
 }
 
 /**
@@ -231,23 +253,23 @@ async function handleProfileSubmit(event) {
   }
   
   try {
-    // Show loading state
+    // Show loading
     showLoadingSection();
-    
-    // Save profile locally
-    userProfile = profileData;
-    localStorage.setItem('userProfile', JSON.stringify(profileData));
-    
-    // Generate mock recommendations for demo
-    const recommendations = await generateMockRecommendations(profileData);
-    
-    // Save recommendations locally
-    localStorage.setItem('recommendations', JSON.stringify(recommendations));
+
+    // Analytics: profile submitted
+    logAnalytics('profile_submitted', { skillsCount: profileData.skills.length });
+
+    // Call backend API
+    const response = await window.api.generateRecommendations(profileData);
+
+    // Persist in memory/local for dashboard rendering fallback
+    localStorage.setItem('recommendations', JSON.stringify(response));
+
+    // Analytics: recommendation generated
+    logAnalytics('recommendation_generated', { rolesCount: response.recommendations?.length || 0 });
     
     // Redirect to dashboard
-    setTimeout(() => {
-      window.location.href = '/dashboard.html';
-    }, 2000);
+    window.location.href = '/dashboard.html';
     
   } catch (error) {
     console.error('Error processing profile:', error);
@@ -407,22 +429,13 @@ function hideLoadingSection() {
  * Mock sign in with Google
  */
 async function signInWithGoogle() {
-  console.log('Sign in with Google called');
   try {
-    // Create mock user for demo
-    currentUser = {
-      uid: 'demo-user-123',
-      email: 'demo@careerco-pilot.com',
-      displayName: 'Demo User'
-    };
-    
-    console.log('Mock user created:', currentUser);
-    showAuthenticatedUI(currentUser);
+    const provider = new firebase.auth.GoogleAuthProvider();
+    await firebase.auth().signInWithPopup(provider);
     showToast('Signed in successfully!', 'success');
-    
   } catch (error) {
     console.error('Sign in error:', error);
-    showToast('Sign in failed: ' + error.message, 'error');
+    showToast('Sign in failed: ' + (error.message || 'Unknown error'), 'error');
   }
 }
 
@@ -431,17 +444,11 @@ async function signInWithGoogle() {
  */
 async function signOut() {
   try {
-    currentUser = null;
-    userProfile = null;
+    await firebase.auth().signOut();
     localStorage.removeItem('userProfile');
     localStorage.removeItem('recommendations');
-    
-    showUnauthenticatedUI();
     showToast('Signed out successfully!', 'success');
-    
-    if (window.location.pathname !== '/' && window.location.pathname !== '/index.html') {
-      window.location.href = '/';
-    }
+    window.location.href = '/';
   } catch (error) {
     console.error('Sign out error:', error);
     showToast('Sign out failed: ' + error.message, 'error');
@@ -504,9 +511,24 @@ function showToast(message, type = 'info') {
     window.showToast(message, type);
   } else {
     console.log(`Toast [${type}]:`, message);
-    // Simple alert for demo
-    alert(`${type.toUpperCase()}: ${message}`);
   }
+}
+
+/**
+ * Minimal client-side analytics (writes to Firestore if available)
+ */
+function logAnalytics(event, data = {}) {
+  try {
+    if (typeof firebase !== 'undefined' && firebase.firestore && firebase.auth().currentUser) {
+      firebase.firestore().collection('analytics').add({
+        uid: firebase.auth().currentUser.uid,
+        event,
+        data,
+        timestamp: new Date(),
+        userAgent: navigator.userAgent
+      }).catch(() => {});
+    }
+  } catch (_) {}
 }
 
 // Initialize app when DOM is loaded
