@@ -4,14 +4,12 @@
   "description": "AI-powered personalized career and skills advisor with interactive skill graphs",
   "main": "index.js",
   "scripts": {
-    "dev:client": "cd client && npm run dev",
-    "dev:server": "cd server && npm run dev",
-    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
-    "build": "npm run build:server && npm run build:client",
-    "build:client": "cd client && npm run build",
-    "build:server": "cd server && npm run build",
-    "start": "cd server && npm run start",
-    "install:all": "npm install && cd client && npm install && cd ../server && npm install"
+    "dev": "firebase emulators:start",
+    "build": "firebase deploy --only hosting",
+    "start": "firebase emulators:start",
+    "install:all": "npm install && cd functions && npm install",
+    "deploy": "firebase deploy",
+    "serve": "cd public && python -m http.server 8000"
   },
   "keywords": [
     "ai",
@@ -20,8 +18,7 @@
     "roadmap",
     "gemini",
     "google-cloud",
-    "react",
-    "nodejs",
+    "firebase",
     "hackathon"
   ],
   "author": "Career Advisor Team",

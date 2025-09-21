@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Career Co-Pilot - Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-firestore.js"></script>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-logo">
+                <i class="fas fa-rocket"></i>
+                <span>Career Co-Pilot</span>
+            </div>
+            <div class="nav-menu">
+                <a href="/" class="nav-link">Home</a>
+                <a href="/about.html" class="nav-link">About</a>
+                <div class="user-menu" id="userMenu">
+                    <span id="userName">User</span>
+                    <button id="signOutBtn" class="btn-secondary">
+                        <i class="fas fa-sign-out-alt"></i> Sign Out
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Dashboard -->
+    <main class="dashboard-container">
+        <!-- Welcome Section -->
+        <section class="welcome-section">
+            <div class="welcome-content">
+                <h1>Welcome back, <span id="userDisplayName">User</span>!</h1>
+                <p>Ready to accelerate your career journey? Let's see your progress.</p>
+            </div>
+            <div class="profile-completion">
+                <div class="completion-circle">
+                    <svg class="progress-ring" width="120" height="120">
+                        <circle class="progress-ring-circle" stroke="#e0e0e0" stroke-width="8" fill="transparent" r="52" cx="60" cy="60"/>
+                        <circle class="progress-ring-circle progress-ring-fill" stroke="#4CAF50" stroke-width="8" fill="transparent" r="52" cx="60" cy="60" id="completionCircle"/>
+                    </svg>
+                    <div class="completion-text">
+                        <span id="completionPercentage">0%</span>
+                        <small>Profile Complete</small>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Quick Stats -->
+        <section class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-bullseye"></i>
+                </div>
+                <div class="stat-content">
+                    <h3 id="recommendationsCount">0</h3>
+                    <p>Career Matches</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-book"></i>
+                </div>
+                <div class="stat-content">
+                    <h3 id="learningPathsCount">0</h3>
+                    <p>Learning Paths</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-clock"></i>
+                </div>
+                <div class="stat-content">
+                    <h3 id="hoursInvested">0</h3>
+                    <p>Hours Invested</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-trophy"></i>
+                </div>
+                <div class="stat-content">
+                    <h3 id="skillsLearned">0</h3>
+                    <p>Skills Mastered</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Main Content Grid -->
+        <div class="dashboard-grid">
+            <!-- Skill Analysis -->
+            <section class="skill-analysis">
+                <div class="section-header">
+                    <h2><i class="fas fa-chart-radar"></i> Skill Analysis</h2>
+                    <button class="btn-outline" onclick="refreshSkillAnalysis()">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                </div>
+                <div class="skill-chart-container">
+                    <canvas id="skillRadarChart"></canvas>
+                </div>
+                <div class="skill-gaps">
+                    <h3>Skill Gaps to Address</h3>
+                    <div id="skillGapsList" class="skill-tags">
+                        <!-- Dynamic skill gaps will be populated here -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- Career Recommendations -->
+            <section class="recommendations">
+                <div class="section-header">
+                    <h2><i class="fas fa-star"></i> Top Career Matches</h2>
+                    <button class="btn-primary" onclick="generateNewRecommendations()">
+                        <i class="fas fa-magic"></i> Get New Recommendations
+                    </button>
+                </div>
+                <div id="recommendationsList" class="recommendations-grid">
+                    <!-- Dynamic recommendations will be populated here -->
+                </div>
+            </section>
+
+            <!-- Learning Progress -->
+            <section class="learning-progress">
+                <div class="section-header">
+                    <h2><i class="fas fa-graduation-cap"></i> Learning Progress</h2>
+                    <button class="btn-outline" onclick="viewAllPaths()">
+                        <i class="fas fa-eye"></i> View All
+                    </button>
+                </div>
+                <div id="learningPathsList" class="learning-paths">
+                    <!-- Dynamic learning paths will be populated here -->
+                </div>
+            </section>
+
+            <!-- AI Career Coach -->
+            <section class="ai-coach">
+                <div class="section-header">
+                    <h2><i class="fas fa-robot"></i> AI Career Coach</h2>
+                    <span class="status-indicator online">Online</span>
+                </div>
+                <div class="chat-container">
+                    <div id="chatMessages" class="chat-messages">
+                        <div class="message bot-message">
+                            <div class="message-avatar">
+                                <i class="fas fa-robot"></i>
+                            </div>
+                            <div class="message-content">
+                                <p>Hi! I'm your AI career coach. How can I help you today?</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="chat-input-container">
+                        <input type="text" id="chatInput" placeholder="Ask me anything about your career..." class="chat-input">
+                        <button id="sendMessageBtn" class="btn-primary">
+                            <i class="fas fa-paper-plane"></i>
+                        </button>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- Resume Upload Section -->
+        <section class="resume-upload">
+            <div class="section-header">
+                <h2><i class="fas fa-file-upload"></i> Resume Analysis</h2>
+                <p>Upload your resume to get more accurate career recommendations</p>
+            </div>
+            <div class="upload-container">
+                <div class="upload-area" id="uploadArea">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <p>Drag & drop your resume here or <span class="upload-link">browse files</span></p>
+                    <small>Supports PDF, DOC, DOCX (Max 5MB)</small>
+                    <input type="file" id="resumeInput" accept=".pdf,.doc,.docx" style="display: none;">
+                </div>
+                <div id="uploadProgress" class="upload-progress" style="display: none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <span id="progressText">Uploading...</span>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <h3 id="loadingTitle">Processing...</h3>
+            <p id="loadingMessage">Please wait while we analyze your data</p>
+        </div>
+    </div>
+
+    <!-- Error Modal -->
+    <div id="errorModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-exclamation-triangle"></i> Error</h3>
+                <button class="modal-close" onclick="closeErrorModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="errorMessage">Something went wrong. Please try again.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeErrorModal()">Close</button>
+                <button class="btn-primary" onclick="retryAction()">Retry</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="app.js"></script>
+    <script src="dashboard-enhanced.js"></script>
+</body>
+</html>

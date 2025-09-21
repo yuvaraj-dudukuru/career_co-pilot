@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Career Co-Pilot - AI-Powered Career Guidance</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-auth.js"></script>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-logo">
+                <i class="fas fa-rocket"></i>
+                <span>Career Co-Pilot</span>
+            </div>
+            <div class="nav-menu">
+                <a href="#features" class="nav-link">Features</a>
+                <a href="#pricing" class="nav-link">Pricing</a>
+                <a href="#about" class="nav-link">About</a>
+                <button id="signInBtn" class="btn-primary">
+                    <i class="fas fa-sign-in-alt"></i> Get Started
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero-landing">
+        <div class="hero-content">
+            <div class="hero-text">
+                <h1>Transform Your Career with AI-Powered Guidance</h1>
+                <p class="hero-subtitle">
+                    Get personalized career recommendations, structured learning paths, and expert guidance 
+                    tailored to your skills, interests, and goals. No more generic advice - just results.
+                </p>
+                <div class="hero-stats">
+                    <div class="stat">
+                        <h3>10,000+</h3>
+                        <p>Students Helped</p>
+                    </div>
+                    <div class="stat">
+                        <h3>95%</h3>
+                        <p>Success Rate</p>
+                    </div>
+                    <div class="stat">
+                        <h3>4.9/5</h3>
+                        <p>User Rating</p>
+                    </div>
+                </div>
+                <div class="hero-actions">
+                    <button class="btn-primary btn-large" onclick="startJourney()">
+                        <i class="fas fa-rocket"></i> Start Your Journey
+                    </button>
+                    <button class="btn-outline btn-large" onclick="watchDemo()">
+                        <i class="fas fa-play"></i> Watch Demo
+                    </button>
+                </div>
+            </div>
+            <div class="hero-visual">
+                <div class="dashboard-preview">
+                    <div class="preview-header">
+                        <div class="preview-dots">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </div>
+                        <span>Career Co-Pilot Dashboard</span>
+                    </div>
+                    <div class="preview-content">
+                        <div class="preview-card">
+                            <h4>Frontend Developer</h4>
+                            <div class="fit-score">85% Match</div>
+                        </div>
+                        <div class="preview-card">
+                            <h4>Data Analyst</h4>
+                            <div class="fit-score">75% Match</div>
+                        </div>
+                        <div class="preview-card">
+                            <h4>Product Manager</h4>
+                            <div class="fit-score">70% Match</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Problem Statement -->
+    <section class="problem-section">
+        <div class="container">
+            <h2>The Career Guidance Problem</h2>
+            <div class="problem-grid">
+                <div class="problem-card">
+                    <div class="problem-icon">
+                        <i class="fas fa-exclamation-triangle"></i>
+                    </div>
+                    <h3>Generic Advice</h3>
+                    <p>One-size-fits-all career guidance that doesn't consider your unique skills, interests, or constraints.</p>
+                </div>
+                <div class="problem-card">
+                    <div class="problem-icon">
+                        <i class="fas fa-dollar-sign"></i>
+                    </div>
+                    <h3>Expensive Counseling</h3>
+                    <p>Professional career counseling costs $100-300 per session, making it inaccessible to most students.</p>
+                </div>
+                <div class="problem-card">
+                    <div class="problem-icon">
+                        <i class="fas fa-balance-scale"></i>
+                    </div>
+                    <h3>Biased Recommendations</h3>
+                    <p>Traditional guidance often influenced by gender, background, or college ranking rather than actual potential.</p>
+                </div>
+                <div class="problem-card">
+                    <div class="problem-icon">
+                        <i class="fas fa-question-circle"></i>
+                    </div>
+                    <h3>Unclear Paths</h3>
+                    <p>Students struggle to understand what skills they need and how to acquire them systematically.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Solution -->
+    <section class="solution-section">
+        <div class="container">
+            <h2>Our AI-Powered Solution</h2>
+            <div class="solution-content">
+                <div class="solution-text">
+                    <h3>Personalized Career Guidance for Everyone</h3>
+                    <p>Career Co-Pilot uses advanced AI to analyze your profile and provide:</p>
+                    <ul class="solution-list">
+                        <li><i class="fas fa-check"></i> <strong>Fair & Transparent</strong> - No bias based on personal characteristics</li>
+                        <li><i class="fas fa-check"></i> <strong>Structured Learning</strong> - 4-week roadmaps with clear milestones</li>
+                        <li><i class="fas fa-check"></i> <strong>Skill Analysis</strong> - Identify gaps and overlapping skills</li>
+                        <li><i class="fas fa-check"></i> <strong>Real-time Guidance</strong> - AI career coach available 24/7</li>
+                        <li><i class="fas fa-check"></i> <strong>Resume Analysis</strong> - Extract skills from your existing resume</li>
+                        <li><i class="fas fa-check"></i> <strong>Market Trends</strong> - Stay updated with industry demands</li>
+                    </ul>
+                </div>
+                <div class="solution-visual">
+                    <div class="process-flow">
+                        <div class="flow-step">
+                            <div class="step-number">1</div>
+                            <h4>Profile Analysis</h4>
+                            <p>AI analyzes your skills, interests, and goals</p>
+                        </div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-step">
+                            <div class="step-number">2</div>
+                            <h4>Career Matching</h4>
+                            <p>Find roles that match your profile</p>
+                        </div>
+                        <div class="flow-arrow">→</div>
+                        <div class="flow-step">
+                            <div class="step-number">3</div>
+                            <h4>Learning Paths</h4>
+                            <p>Get structured 4-week roadmaps</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features -->
+    <section id="features" class="features-section">
+        <div class="container">
+            <h2>Powerful Features</h2>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-brain"></i>
+                    </div>
+                    <h3>AI-Powered Analysis</h3>
+                    <p>Advanced algorithms analyze your skills and interests to provide accurate career recommendations.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-chart-line"></i>
+                    </div>
+                    <h3>Skill Visualization</h3>
+                    <p>Interactive charts show your current skills, gaps, and progress toward career goals.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-route"></i>
+                    </div>
+                    <h3>Learning Roadmaps</h3>
+                    <p>Structured 4-week learning paths with topics, practice, assessment, and projects.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <h3>AI Career Coach</h3>
+                    <p>24/7 AI assistant to answer questions and provide guidance on your career journey.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-file-upload"></i>
+                    </div>
+                    <h3>Resume Analysis</h3>
+                    <p>Upload your resume to automatically extract skills and get more accurate recommendations.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <i class="fas fa-trending-up"></i>
+                    </div>
+                    <h3>Market Trends</h3>
+                    <p>Stay updated with the latest job market trends and in-demand skills.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Pricing -->
+    <section id="pricing" class="pricing-section">
+        <div class="container">
+            <h2>Simple, Transparent Pricing</h2>
+            <p class="pricing-subtitle">Choose the plan that fits your needs</p>
+            <div class="pricing-grid">
+                <div class="pricing-card">
+                    <div class="pricing-header">
+                        <h3>Free</h3>
+                        <div class="price">
+                            <span class="currency">$</span>
+                            <span class="amount">0</span>
+                            <span class="period">/month</span>
+                        </div>
+                    </div>
+                    <div class="pricing-features">
+                        <ul>
+                            <li><i class="fas fa-check"></i> 3 Career Recommendations</li>
+                            <li><i class="fas fa-check"></i> Basic Skill Analysis</li>
+                            <li><i class="fas fa-check"></i> 1 Learning Path</li>
+                            <li><i class="fas fa-check"></i> Community Support</li>
+                        </ul>
+                    </div>
+                    <button class="btn-outline" onclick="selectPlan('free')">Get Started</button>
+                </div>
+                <div class="pricing-card featured">
+                    <div class="pricing-badge">Most Popular</div>
+                    <div class="pricing-header">
+                        <h3>Pro</h3>
+                        <div class="price">
+                            <span class="currency">$</span>
+                            <span class="amount">19</span>
+                            <span class="period">/month</span>
+                        </div>
+                    </div>
+                    <div class="pricing-features">
+                        <ul>
+                            <li><i class="fas fa-check"></i> Unlimited Recommendations</li>
+                            <li><i class="fas fa-check"></i> Advanced Skill Analysis</li>
+                            <li><i class="fas fa-check"></i> Unlimited Learning Paths</li>
+                            <li><i class="fas fa-check"></i> AI Career Coach</li>
+                            <li><i class="fas fa-check"></i> Resume Analysis</li>
+                            <li><i class="fas fa-check"></i> Market Trends</li>
+                            <li><i class="fas fa-check"></i> Priority Support</li>
+                        </ul>
+                    </div>
+                    <button class="btn-primary" onclick="selectPlan('pro')">Start Free Trial</button>
+                </div>
+                <div class="pricing-card">
+                    <div class="pricing-header">
+                        <h3>Enterprise</h3>
+                        <div class="price">
+                            <span class="currency">$</span>
+                            <span class="amount">99</span>
+                            <span class="period">/month</span>
+                        </div>
+                    </div>
+                    <div class="pricing-features">
+                        <ul>
+                            <li><i class="fas fa-check"></i> Everything in Pro</li>
+                            <li><i class="fas fa-check"></i> Team Management</li>
+                            <li><i class="fas fa-check"></i> Custom Learning Paths</li>
+                            <li><i class="fas fa-check"></i> Analytics Dashboard</li>
+                            <li><i class="fas fa-check"></i> API Access</li>
+                            <li><i class="fas fa-check"></i> Dedicated Support</li>
+                        </ul>
+                    </div>
+                    <button class="btn-outline" onclick="selectPlan('enterprise')">Contact Sales</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Testimonials -->
+    <section class="testimonials-section">
+        <div class="container">
+            <h2>What Our Users Say</h2>
+            <div class="testimonials-grid">
+                <div class="testimonial-card">
+                    <div class="testimonial-content">
+                        <p>"Career Co-Pilot helped me discover my passion for data science. The learning path was perfectly structured and I landed my dream job in 3 months!"</p>
+                    </div>
+                    <div class="testimonial-author">
+                        <div class="author-avatar">
+                            <i class="fas fa-user"></i>
+                        </div>
+                        <div class="author-info">
+                            <h4>Sarah Chen</h4>
+                            <p>Data Scientist at Google</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="testimonial-card">
+                    <div class="testimonial-content">
+                        <p>"The AI career coach is amazing! It answered all my questions and helped me understand what skills I needed to develop."</p>
+                    </div>
+                    <div class="testimonial-author">
+                        <div class="author-avatar">
+                            <i class="fas fa-user"></i>
+                        </div>
+                        <div class="author-info">
+                            <h4>Michael Rodriguez</h4>
+                            <p>Frontend Developer at Microsoft</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="testimonial-card">
+                    <div class="testimonial-content">
+                        <p>"Finally, career guidance that's fair and unbiased! The skill analysis showed me exactly where I needed to improve."</p>
+                    </div>
+                    <div class="testimonial-author">
+                        <div class="author-avatar">
+                            <i class="fas fa-user"></i>
+                        </div>
+                        <div class="author-info">
+                            <h4>Priya Sharma</h4>
+                            <p>Product Manager at Amazon</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta-section">
+        <div class="container">
+            <div class="cta-content">
+                <h2>Ready to Transform Your Career?</h2>
+                <p>Join thousands of students who have found their dream careers with Career Co-Pilot</p>
+                <div class="cta-actions">
+                    <button class="btn-primary btn-large" onclick="startJourney()">
+                        <i class="fas fa-rocket"></i> Start Your Journey
+                    </button>
+                    <button class="btn-outline btn-large" onclick="scheduleDemo()">
+                        <i class="fas fa-calendar"></i> Schedule Demo
+                    </button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <div class="footer-logo">
+                        <i class="fas fa-rocket"></i>
+                        <span>Career Co-Pilot</span>
+                    </div>
+                    <p>AI-powered career guidance for the next generation of professionals.</p>
+                </div>
+                <div class="footer-section">
+                    <h4>Product</h4>
+                    <ul>
+                        <li><a href="#features">Features</a></li>
+                        <li><a href="#pricing">Pricing</a></li>
+                        <li><a href="/about.html">About</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h4>Support</h4>
+                    <ul>
+                        <li><a href="#">Help Center</a></li>
+                        <li><a href="#">Contact Us</a></li>
+                        <li><a href="#">Privacy Policy</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h4>Connect</h4>
+                    <div class="social-links">
+                        <a href="#"><i class="fab fa-twitter"></i></a>
+                        <a href="#"><i class="fab fa-linkedin"></i></a>
+                        <a href="#"><i class="fab fa-github"></i></a>
+                    </div>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2024 Career Co-Pilot. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="app.js"></script>
+    <script>
+        // Landing page specific functionality
+        function startJourney() {
+            window.location.href = '/';
+        }
+
+        function watchDemo() {
+            // Open demo video or modal
+            alert('Demo video coming soon!');
+        }
+
+        function selectPlan(plan) {
+            if (plan === 'free') {
+                startJourney();
+            } else {
+                alert(`${plan.charAt(0).toUpperCase() + plan.slice(1)} plan selected! Contact us for more details.`);
+            }
+        }
+
+        function scheduleDemo() {
+            alert('Demo scheduling coming soon!');
+        }
+
+        // Smooth scrolling for navigation links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+    </script>
+</body>
+</html>

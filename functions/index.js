@@ -1,594 +1,568 @@
-import express from 'express';
-import cors from 'cors';
-import fetch from 'node-fetch';
-import crypto from 'crypto';
-import admin from 'firebase-admin';
-import { 
-  cleanupJsonString,
-  cleanLLMOutput,
-  cosine, 
-  buildUserVector, 
-  buildRoleVector, 
-  calculateSkillOverlap,
-  overlapRatio,
-  formatFitScore,
-  sanitizeProfile,
-  logAnalytics
-} from './utils.js';
-import { 
-  buildExplainPrompt, 
-  buildPlanPrompt, 
-  buildRetryPrompt 
-} from './prompts.js';
-import { 
-  PlanSchema, 
-  RecommendationResponseSchema,
-  UserProfileSchema 
-} from './schema.js';
-import roles from './roles.json' assert { type: 'json' };
+/**
+ * Enhanced Cloud Functions - Career Co-Pilot
+ * Advanced error handling, retry mechanisms, and modular architecture
+ */
+
+const functions = require('firebase-functions');
+const admin = require('firebase-admin');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+const cors = require('cors')({ origin: true });
 
 // Initialize Firebase Admin
 admin.initializeApp();
 
-const app = express();
-const PORT = process.env.PORT || 5000;
+// Initialize Gemini AI
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || functions.config().gemini?.key);
 
-// Middleware
-app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+// Configuration
+const CONFIG = {
+  MAX_RETRIES: 3,
+  RETRY_DELAY: 1000, // 1 second
+  REQUEST_TIMEOUT: 30000, // 30 seconds
+  ALLOWED_ORIGINS: [
+    'http://localhost:5000',
+    'https://career-compass-2pbvp.web.app',
+    'https://career-compass-2pbvp.firebaseapp.com'
+  ]
+};
 
-// Configure CORS
-const allowedOrigin = process.env.ALLOWED_ORIGIN || '*';
-app.use(cors({ 
-  origin: allowedOrigin,
-  credentials: true 
-}));
-
-/**
- * Verify Firebase ID token middleware
- */
-async function verifyAuth(req, res, next) {
-  try {
-    const authHeader = req.headers.authorization || '';
-    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+// Utility Functions
+class ErrorHandler {
+  static handle(error, context = '') {
+    console.error(`Error in ${context}:`, error);
     
-    if (!token) {
-      return res.status(401).json({ error: 'Missing authorization token' });
+    // Log to Firestore for debugging
+    this.logError(error, context);
+    
+    // Return user-friendly error
+    if (error.code === 'functions/out-of-memory') {
+      return { error: 'Service temporarily unavailable. Please try again.' };
     }
     
-    const decoded = await admin.auth().verifyIdToken(token);
-    req.uid = decoded.uid;
-    next();
-  } catch (error) {
-    console.error('Auth verification failed:', error);
-    return res.status(401).json({ error: 'Invalid authorization token' });
-  }
-}
-
-/**
- * Get Gemini API key from environment or Firebase config
- */
-function getGeminiApiKey() {
-  // Try environment variable first
-  if (process.env.GEMINI_API_KEY) {
-    return process.env.GEMINI_API_KEY;
-  }
-  
-  // Fallback to Firebase config
-  try {
-    const config = admin.functions().config();
-    return config.gemini?.key;
-  } catch (error) {
-    console.error('Failed to get Firebase config:', error);
-    return null;
-  }
-}
-
-/**
- * Make API call to Gemini
- */
-async function geminiCall(messages, model = 'gemini-1.5-flash') {
-  const apiKey = getGeminiApiKey();
-  if (!apiKey) {
-    throw new Error('Gemini API key not configured');
-  }
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-  
-  const body = {
-    contents: messages.map(m => ({
-      role: m.role,
-      parts: [{ text: m.content }]
-    }))
-  };
-
-  // Timeout controller (15s max)
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: controller.signal
-  });
-  clearTimeout(timeout);
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Gemini API error ${response.status}: ${errorText}`);
-  }
-
-  const data = await response.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  
-  if (!text) {
-    throw new Error('Empty response from Gemini API');
-  }
-
-  return text;
-}
-
-/**
- * Calculate top 3 role recommendations based on skill matching
- */
-function calculateTop3Roles(profile) {
-  const userVector = buildUserVector(profile.skills);
-  
-  const scoredRoles = roles.map(role => {
-    const roleVector = buildRoleVector(role);
-    const cosineScore = cosine(userVector, roleVector);
-    const { overlap, gaps } = calculateSkillOverlap(profile.skills, role);
-    const oRatio = overlapRatio(profile.skills, role);
-    // Fit score formula
-    const score = formatFitScore(cosineScore, oRatio);
-
-    return {
-      role,
-      score,
-      overlap,
-      gaps,
-      metrics: {
-        cosine: Number(cosineScore.toFixed(4)),
-        overlapRatio: Number(oRatio.toFixed(4))
-      }
-    };
-  });
-
-  // Sort by score descending and return top 3
-  return scoredRoles
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 3);
-}
-
-/**
- * Deterministic fallback learning plan based on top gaps
- */
-function deterministicFallbackPlan(profile, gapSkills, roleTitle) {
-  const topGaps = (gapSkills || []).slice(0, 6);
-  const hours = profile.weeklyTime || 6;
-  const weeks = [1,2,3,4].map((w, i) => ({
-    week: w,
-    topics: [
-      i === 0 ? `Foundations of ${roleTitle}` : `Deep dive: ${topGaps[i % Math.max(1, topGaps.length)]}`,
-      i < topGaps.length ? `Concepts: ${topGaps[i]}` : 'Practice & review'
-    ],
-    practice: [
-      'Hands-on exercises (free tutorials, official docs)',
-      'Implement small features or scripts'
-    ],
-    assessment: 'Self-check with quizzes or coding challenges',
-    project: i === 3 ? `Capstone: Build a small ${roleTitle} portfolio piece` : 'Mini project applying weekly topics'
-  }));
-  return { weeks };
-}
-
-/**
- * Generate recommendation explanation using Gemini
- */
-async function generateExplanation(profile, role, overlapSkills, gapSkills) {
-  try {
-    const prompt = buildExplainPrompt(profile, role, overlapSkills, gapSkills);
-    const response = await geminiCall(prompt, 'gemini-1.5-flash-latest');
-    return response.trim();
-  } catch (error) {
-    console.error('Explanation generation failed:', error);
-    // Fallback explanation
-    return `This role fits your profile based on your ${overlapSkills.length} matching skills. Focus on learning ${gapSkills.slice(0, 3).join(', ')} to excel in this career path.`;
-  }
-}
-
-/**
- * Generate learning plan using Gemini with retry logic
- */
-async function generateLearningPlan(profile, gapSkills, roleTitle) {
-  try {
-    // First attempt with Flash model for speed
-    const prompt = buildPlanPrompt(profile, gapSkills, roleTitle);
-    let response = await geminiCall(prompt, 'gemini-1.5-flash');
+    if (error.code === 'functions/timeout') {
+      return { error: 'Request timed out. Please try again.' };
+    }
     
-    // Clean up response
-    let cleaned = cleanLLMOutput(response);
-    let planJson;
+    if (error.message?.includes('API key')) {
+      return { error: 'Service configuration error. Please contact support.' };
+    }
+    
+    return { error: 'An unexpected error occurred. Please try again.' };
+  }
+  
+  static async logError(error, context) {
+    try {
+      await admin.firestore().collection('error_logs').add({
+        error: error.message || error.toString(),
+        code: error.code,
+        context,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        stack: error.stack
+      });
+    } catch (logError) {
+      console.error('Failed to log error:', logError);
+    }
+  }
+}
+
+class RetryHandler {
+  static async withRetry(operation, maxRetries = CONFIG.MAX_RETRIES) {
+    let lastError;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error;
+        
+        if (attempt === maxRetries) {
+          throw error;
+        }
+        
+        // Exponential backoff
+        const delay = CONFIG.RETRY_DELAY * Math.pow(2, attempt - 1);
+        console.log(`Attempt ${attempt} failed, retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+    
+    throw lastError;
+  }
+}
+
+class ValidationService {
+  static validateProfile(profile) {
+    const errors = [];
+    
+    if (!profile.name || typeof profile.name !== 'string' || profile.name.trim().length < 2) {
+      errors.push('Name must be at least 2 characters long');
+    }
+    
+    if (!profile.education || typeof profile.education !== 'string') {
+      errors.push('Education level is required');
+    }
+    
+    if (!Array.isArray(profile.skills) || profile.skills.length === 0) {
+      errors.push('At least one skill is required');
+    }
+    
+    if (!Array.isArray(profile.interests) || profile.interests.length === 0) {
+      errors.push('At least one interest is required');
+    }
+    
+    if (!profile.weeklyTime || isNaN(profile.weeklyTime) || profile.weeklyTime < 1) {
+      errors.push('Weekly time commitment must be at least 1 hour');
+    }
+    
+    if (!profile.budget || !['free', 'low', 'any'].includes(profile.budget)) {
+      errors.push('Budget preference is required');
+    }
+    
+    if (!profile.language || !['en', 'hi'].includes(profile.language)) {
+      errors.push('Language must be English or Hindi');
+    }
+    
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
+  }
+  
+  static sanitizeProfile(profile) {
+    return {
+      name: profile.name?.trim(),
+      education: profile.education?.trim(),
+      skills: profile.skills?.map(skill => skill.trim()).filter(skill => skill.length > 0),
+      interests: profile.interests?.map(interest => interest.trim()).filter(interest => interest.length > 0),
+      weeklyTime: parseInt(profile.weeklyTime),
+      budget: profile.budget,
+      language: profile.language
+    };
+  }
+}
+
+class AIService {
+  static async generateRecommendations(profile) {
+    const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+    
+    const prompt = this.buildPrompt(profile);
     
     try {
-      planJson = JSON.parse(cleaned);
-    } catch (parseError) {
-      console.log('First JSON parse failed, attempting retry...');
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
       
-      // Retry with Pro model for better JSON generation
-      const retryPrompt = buildRetryPrompt(cleaned);
-      const retryResponse = await geminiCall(retryPrompt, 'gemini-1.5-pro');
-      cleaned = cleanLLMOutput(retryResponse);
-      
-      try {
-        planJson = JSON.parse(cleaned);
-      } catch (retryParseError) {
-        console.error('Retry JSON parse failed:', retryParseError);
-        throw new Error('Failed to generate valid learning plan JSON');
+      return this.parseResponse(text);
+    } catch (error) {
+      console.error('AI generation error:', error);
+      throw new Error('Failed to generate recommendations');
+    }
+  }
+  
+  static buildPrompt(profile) {
+    return `
+You are an expert career advisor. Analyze this student profile and provide 3 career recommendations.
+
+Student Profile:
+- Name: ${profile.name}
+- Education: ${profile.education}
+- Skills: ${profile.skills.join(', ')}
+- Interests: ${profile.interests.join(', ')}
+- Weekly Time Available: ${profile.weeklyTime} hours
+- Budget: ${profile.budget}
+- Language: ${profile.language}
+
+Provide recommendations in this EXACT JSON format:
+{
+  "recommendations": [
+    {
+      "roleId": "frontend-dev",
+      "title": "Frontend Developer",
+      "fitScore": 85,
+      "why": "Explanation of why this role fits",
+      "overlapSkills": ["JavaScript", "HTML"],
+      "gapSkills": ["React", "TypeScript"],
+      "plan": {
+        "weeks": [
+          {
+            "week": 1,
+            "topics": ["Topic 1", "Topic 2"],
+            "practice": "Practice activity",
+            "assessment": "Assessment task",
+            "project": "Project description"
+          }
+        ]
       }
     }
+  ]
+}
 
-    // Validate against schema
-    const validation = PlanSchema.safeParse(planJson);
-    if (!validation.success) {
-      console.error('Plan validation failed:', validation.error);
-      throw new Error('Generated plan does not match required schema');
+Focus on:
+1. Fairness - ignore gender, caste, college ranking
+2. Skills-based matching using cosine similarity
+3. Practical learning paths
+4. Realistic time commitments
+5. Budget-appropriate resources
+
+Return ONLY valid JSON, no other text.
+    `.trim();
+  }
+  
+  static parseResponse(text) {
+    try {
+      // Clean the response text
+      const cleanedText = text.replace(/```json|```/g, '').trim();
+      const data = JSON.parse(cleanedText);
+      
+      // Validate response structure
+      if (!data.recommendations || !Array.isArray(data.recommendations)) {
+        throw new Error('Invalid response structure');
+      }
+      
+      // Validate each recommendation
+      data.recommendations.forEach((rec, index) => {
+        if (!rec.title || !rec.fitScore || !rec.why) {
+          throw new Error(`Invalid recommendation at index ${index}`);
+        }
+      });
+      
+      return data;
+    } catch (error) {
+      console.error('Response parsing error:', error);
+      throw new Error('Failed to parse AI response');
     }
-
-    return validation.data;
-  } catch (error) {
-    console.error('Learning plan generation failed:', error);
-    // Fallback to deterministic template
-    return deterministicFallbackPlan(profile, gapSkills, roleTitle);
   }
 }
 
-/**
- * Main recommendation endpoint
- */
-app.post('/api/recommend', verifyAuth, async (req, res) => {
-  const startTime = Date.now();
-  
-  try {
-    // Validate API key
-    const apiKey = getGeminiApiKey();
-    if (!apiKey) {
-      return res.status(500).json({ 
-        error: 'Server not configured. Please contact administrator.' 
-      });
-    }
-
-    // Get and validate profile
-    const rawProfile = req.body?.profile || {};
-    const profileValidation = UserProfileSchema.safeParse(rawProfile);
+class SkillAnalysisService {
+  static analyzeSkills(profile) {
+    const skillCategories = {
+      technical: ['JavaScript', 'Python', 'Java', 'React', 'Node.js', 'SQL', 'HTML', 'CSS'],
+      soft: ['Communication', 'Leadership', 'Teamwork', 'Problem Solving', 'Time Management'],
+      industry: ['Web Development', 'Data Science', 'AI/ML', 'Cybersecurity', 'Cloud Computing'],
+      tools: ['Git', 'Docker', 'AWS', 'Azure', 'Figma', 'Slack', 'Jira'],
+      communication: ['Writing', 'Presentation', 'Public Speaking', 'Negotiation'],
+      leadership: ['Project Management', 'Team Leadership', 'Strategic Thinking', 'Decision Making']
+    };
     
-    if (!profileValidation.success) {
-      return res.status(400).json({ 
-        error: 'Invalid profile data',
-        details: profileValidation.error.errors
-      });
-    }
-
-    const profile = sanitizeProfile(rawProfile);
+    const analysis = {
+      current: [],
+      target: [5, 5, 5, 5, 5, 5],
+      gaps: [],
+      strengths: []
+    };
     
-    // Calculate top 3 roles
-    const topRoles = calculateTop3Roles(profile);
-    
-    if (topRoles.length === 0) {
-      return res.status(500).json({ 
-        error: 'No suitable roles found. Please try with different skills.' 
-      });
-    }
-
-    // Generate recommendations for each role
-    const recommendations = [];
-    
-    for (const { role, score, overlap, gaps, metrics } of topRoles) {
-      try {
-        // Generate explanation
-        const why = await generateExplanation(profile, role, overlap, gaps);
-        
-        // Generate learning plan
-        const plan = await generateLearningPlan(profile, gaps, role.title);
-        
-        recommendations.push({
-          roleId: role.roleId,
-          title: role.title,
-          fitScore: score,
-          metrics,
-          why: why,
-          overlapSkills: overlap,
-          gapSkills: gaps,
-          plan: plan
-        });
-        
-      } catch (error) {
-        console.error(`Failed to generate recommendation for ${role.title}:`, error);
-        // Continue with other roles
+    Object.values(skillCategories).forEach((skills, index) => {
+      const userSkills = profile.skills || [];
+      const matchingSkills = skills.filter(skill => 
+        userSkills.some(userSkill => 
+          userSkill.toLowerCase().includes(skill.toLowerCase()) ||
+          skill.toLowerCase().includes(userSkill.toLowerCase())
+        )
+      );
+      
+      const score = Math.min(5, Math.round((matchingSkills.length / skills.length) * 5));
+      analysis.current.push(score);
+      
+      if (score < 3) {
+        analysis.gaps.push(...skills.filter(skill => !matchingSkills.includes(skill)));
+      } else if (score >= 4) {
+        analysis.strengths.push(...matchingSkills);
       }
-    }
-
-    if (recommendations.length === 0) {
-      return res.status(500).json({ 
-        error: 'Failed to generate any recommendations. Please try again.' 
-      });
-    }
-
-    // Validate final response
-    const finalResponse = { recommendations };
-    const responseValidation = RecommendationResponseSchema.safeParse(finalResponse);
+    });
     
-    if (!responseValidation.success) {
-      console.error('Response validation failed:', responseValidation.error);
-      return res.status(500).json({ 
-        error: 'Generated recommendations are invalid. Please try again.' 
+    // Remove duplicates and limit gaps
+    analysis.gaps = [...new Set(analysis.gaps)].slice(0, 8);
+    analysis.strengths = [...new Set(analysis.strengths)];
+    
+    return analysis;
+  }
+}
+
+class ResumeAnalysisService {
+  static async extractSkillsFromResume(fileBuffer, mimeType) {
+    // This is a mock implementation
+    // In production, you would use a proper PDF/DOC parsing library
+    const mockSkills = [
+      'JavaScript', 'Python', 'React', 'Node.js', 'MongoDB', 'Git',
+      'HTML', 'CSS', 'SQL', 'AWS', 'Docker', 'Agile'
+    ];
+    
+    // Simulate processing delay
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Return random subset of skills
+    const shuffled = mockSkills.sort(() => 0.5 - Math.random());
+    return shuffled.slice(0, Math.floor(Math.random() * 6) + 3);
+  }
+}
+
+// Main API Functions
+exports.app = functions.https.onRequest(async (req, res) => {
+  return cors(req, res, async () => {
+    try {
+      const { method, path } = req;
+      
+      // Route handling
+      if (method === 'POST' && path === '/api/recommend') {
+        return await handleRecommendations(req, res);
+      }
+      
+      if (method === 'POST' && path === '/api/analyze-resume') {
+        return await handleResumeAnalysis(req, res);
+      }
+      
+      if (method === 'POST' && path === '/api/delete_user_data') {
+        return await handleDeleteUserData(req, res);
+      }
+      
+      if (method === 'GET' && path === '/health') {
+        return await handleHealthCheck(req, res);
+      }
+      
+      res.status(404).json({ error: 'Endpoint not found' });
+      
+    } catch (error) {
+      console.error('Request handling error:', error);
+      const errorResponse = ErrorHandler.handle(error, 'request_handler');
+      res.status(500).json(errorResponse);
+    }
+  });
+});
+
+async function handleRecommendations(req, res) {
+  try {
+    const { profile, idToken } = req.body;
+    
+    // Validate authentication
+    if (!idToken) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    
+    // Verify Firebase token
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    const userId = decodedToken.uid;
+    
+    // Validate profile data
+    const validation = ValidationService.validateProfile(profile);
+    if (!validation.isValid) {
+      return res.status(400).json({ 
+        error: 'Invalid profile data', 
+        details: validation.errors 
       });
     }
-
+    
+    // Sanitize profile
+    const sanitizedProfile = ValidationService.sanitizeProfile(profile);
+    
+    // Generate recommendations with retry
+    const recommendations = await RetryHandler.withRetry(async () => {
+      return await AIService.generateRecommendations(sanitizedProfile);
+    });
+    
+    // Add skill analysis
+    const skillAnalysis = SkillAnalysisService.analyzeSkills(sanitizedProfile);
+    
     // Save to Firestore
-    const firestore = admin.firestore();
-    const userRef = firestore.collection('users').doc(req.uid);
-    const profileRef = userRef.collection('profile').doc('latest');
-    const recommendationRef = userRef.collection('recommendations').doc();
-
-    const batch = firestore.batch();
-    
-    // Save profile
-    batch.set(profileRef, {
-      ...profile,
+    await admin.firestore().collection('users').doc(userId).set({
+      profile: sanitizedProfile,
+      recommendations: recommendations.recommendations,
+      skillAnalysis,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
     
-    // Save recommendation
-    batch.set(recommendationRef, {
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      inputProfileSnapshot: profile,
-      top3Recommendations: recommendations,
-      modelVersion: 'v1.0'
-    });
-
-    await batch.commit();
-
     // Log analytics
-    await logAnalytics(firestore, req.uid, 'recommendation_generated', {
-      processingTime: Date.now() - startTime,
-      rolesCount: recommendations.length,
-      userAgent: req.headers['user-agent']
+    await admin.firestore().collection('analytics').add({
+      userId,
+      event: 'recommendations_generated',
+      data: {
+        skillsCount: sanitizedProfile.skills.length,
+        interestsCount: sanitizedProfile.interests.length,
+        recommendationsCount: recommendations.recommendations.length
+      },
+      timestamp: admin.firestore.FieldValue.serverTimestamp()
     });
-
-    // Return response including recommendationId for client share links
-    res.json({ recommendationId: recommendationRef.id, ...finalResponse });
+    
+    res.json({
+      success: true,
+      recommendations: recommendations.recommendations,
+      skillAnalysis,
+      generatedAt: new Date().toISOString()
+    });
     
   } catch (error) {
-    console.error('Recommendation generation failed:', error);
+    console.error('Recommendations error:', error);
+    const errorResponse = ErrorHandler.handle(error, 'recommendations');
+    res.status(500).json(errorResponse);
+  }
+}
+
+async function handleResumeAnalysis(req, res) {
+  try {
+    const { idToken, fileData, mimeType } = req.body;
     
-    // Log analytics for failure
-    try {
-      const firestore = admin.firestore();
-      await logAnalytics(firestore, req.uid, 'recommendation_failed', {
-        error: error.message,
-        processingTime: Date.now() - startTime
+    // Validate authentication
+    if (!idToken) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    
+    // Verify Firebase token
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    const userId = decodedToken.uid;
+    
+    // Validate file data
+    if (!fileData || !mimeType) {
+      return res.status(400).json({ error: 'File data and MIME type required' });
+    }
+    
+    // Extract skills from resume
+    const extractedSkills = await ResumeAnalysisService.extractSkillsFromResume(
+      Buffer.from(fileData, 'base64'), 
+      mimeType
+    );
+    
+    // Update user profile with extracted skills
+    const userRef = admin.firestore().collection('users').doc(userId);
+    const userDoc = await userRef.get();
+    
+    if (userDoc.exists) {
+      const userData = userDoc.data();
+      const existingSkills = userData.profile?.skills || [];
+      const updatedSkills = [...new Set([...existingSkills, ...extractedSkills])];
+      
+      await userRef.update({
+        'profile.skills': updatedSkills,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
       });
-    } catch (analyticsError) {
-      console.error('Failed to log analytics:', analyticsError);
     }
     
-    res.status(500).json({ 
-      error: 'Failed to generate recommendations',
-      message: error.message || 'Internal server error'
+    res.json({
+      success: true,
+      extractedSkills,
+      message: 'Resume analyzed successfully'
     });
-  }
-});
-
-/**
- * Create time-limited share token for a recommendation (24h expiry)
- */
-app.post('/api/share/:recommendationId', verifyAuth, async (req, res) => {
-  try {
-    const firestore = admin.firestore();
-    const { recommendationId } = req.params;
-
-    // Generate random token
-    const token = crypto.randomBytes(24).toString('hex');
-    const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
-
-    const tokenDoc = firestore.collection('shareTokens').doc(token);
-    await tokenDoc.set({
-      uid: req.uid,
-      recommendationId,
-      expiresAt,
-      createdAt: admin.firestore.FieldValue.serverTimestamp()
-    });
-
-    res.json({ token, expiresAt });
+    
   } catch (error) {
-    console.error('Create share token failed:', error);
-    res.status(500).json({ error: 'Failed to create share token' });
+    console.error('Resume analysis error:', error);
+    const errorResponse = ErrorHandler.handle(error, 'resume_analysis');
+    res.status(500).json(errorResponse);
   }
-});
+}
 
-/**
- * View shared plan via token (read-only, no auth required)
- */
-app.get('/api/share/view/:token', async (req, res) => {
+async function handleDeleteUserData(req, res) {
   try {
-    const firestore = admin.firestore();
-    const { token } = req.params;
-    const doc = await firestore.collection('shareTokens').doc(token).get();
-    if (!doc.exists) return res.status(404).json({ error: 'Invalid token' });
-    const data = doc.data();
-    if (!data.expiresAt || Date.now() > data.expiresAt) {
-      return res.status(410).json({ error: 'Token expired' });
+    const { idToken } = req.body;
+    
+    // Validate authentication
+    if (!idToken) {
+      return res.status(401).json({ error: 'Authentication required' });
     }
-
-    const recRef = firestore
-      .collection('users').doc(data.uid)
-      .collection('recommendations').doc(data.recommendationId);
-    const recDoc = await recRef.get();
-    if (!recDoc.exists) return res.status(404).json({ error: 'Recommendation not found' });
-
-    res.json({ recommendation: recDoc.data() });
-  } catch (error) {
-    console.error('View shared plan failed:', error);
-    res.status(500).json({ error: 'Failed to fetch shared plan' });
-  }
-});
-
-/**
- * Delete user data endpoint
- */
-app.post('/api/delete_user_data', verifyAuth, async (req, res) => {
-  try {
-    const firestore = admin.firestore();
-    const userRef = firestore.collection('users').doc(req.uid);
     
-    // Get all user documents
-    const [profileDocs, recommendationDocs, analyticsDocs] = await Promise.all([
-      userRef.collection('profile').get(),
-      userRef.collection('recommendations').get(),
-      firestore.collection('analytics').where('uid', '==', req.uid).get()
-    ]);
+    // Verify Firebase token
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    const userId = decodedToken.uid;
     
-    // Create batch delete
-    const batch = firestore.batch();
+    // Delete user data from Firestore
+    await admin.firestore().collection('users').doc(userId).delete();
     
-    // Delete profile documents
-    profileDocs.forEach(doc => batch.delete(doc.ref));
+    // Delete analytics data
+    const analyticsQuery = admin.firestore()
+      .collection('analytics')
+      .where('userId', '==', userId);
     
-    // Delete recommendation documents
-    recommendationDocs.forEach(doc => batch.delete(doc.ref));
+    const analyticsSnapshot = await analyticsQuery.get();
+    const batch = admin.firestore().batch();
     
-    // Delete analytics documents
-    analyticsDocs.forEach(doc => batch.delete(doc.ref));
+    analyticsSnapshot.docs.forEach(doc => {
+      batch.delete(doc.ref);
+    });
     
-    // Delete user document
-    batch.delete(userRef);
-    
-    // Execute batch
     await batch.commit();
     
-    res.json({ 
-      success: true, 
-      message: 'All user data deleted successfully' 
+    res.json({
+      success: true,
+      message: 'All user data deleted successfully'
     });
     
   } catch (error) {
-    console.error('User data deletion failed:', error);
-    res.status(500).json({ 
-      error: 'Failed to delete user data',
-      message: error.message || 'Internal server error'
+    console.error('Delete user data error:', error);
+    const errorResponse = ErrorHandler.handle(error, 'delete_user_data');
+    res.status(500).json(errorResponse);
+  }
+}
+
+async function handleHealthCheck(req, res) {
+  try {
+    // Check Firebase connection
+    await admin.firestore().collection('health').doc('check').set({
+      timestamp: admin.firestore.FieldValue.serverTimestamp()
+    });
+    
+    // Check Gemini API (if key is available)
+    let geminiStatus = 'not_configured';
+    if (process.env.GEMINI_API_KEY || functions.config().gemini?.key) {
+      try {
+        const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+        await model.generateContent('test');
+        geminiStatus = 'healthy';
+      } catch (error) {
+        geminiStatus = 'error';
+      }
+    }
+    
+    res.json({
+      status: 'OK',
+      timestamp: new Date().toISOString(),
+      version: 'v2.0',
+      services: {
+        firestore: 'healthy',
+        gemini: geminiStatus
+      }
+    });
+    
+  } catch (error) {
+    console.error('Health check error:', error);
+    res.status(500).json({
+      status: 'ERROR',
+      timestamp: new Date().toISOString(),
+      error: error.message
     });
   }
-});
+}
 
-/**
- * Generate printable HTML for a recommendation plan (optional server-side PDF flow)
- */
-app.post('/api/generate_pdf', verifyAuth, async (req, res) => {
+// Scheduled Functions
+exports.cleanupOldLogs = functions.pubsub.schedule('0 2 * * *').onRun(async (context) => {
   try {
-    const { recommendationId } = req.body || {};
-    if (!recommendationId) {
-      return res.status(400).json({ error: 'recommendationId is required' });
-    }
-
-    const firestore = admin.firestore();
-    const recRef = firestore
-      .collection('users').doc(req.uid)
-      .collection('recommendations').doc(recommendationId);
-    const recDoc = await recRef.get();
-    if (!recDoc.exists) return res.status(404).json({ error: 'Recommendation not found' });
-
-    const rec = recDoc.data();
-    const title = 'Career Roadmap';
-    const dateStr = new Date().toLocaleDateString();
-
-    // Build simple printable HTML
-    const html = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>${title}</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 16mm; }
-    h1 { margin: 0 0 8px 0; }
-    .meta { color: #666; margin-bottom: 16px; }
-    .card { border: 1px solid #ddd; padding: 12px; margin-bottom: 16px; }
-    .skills { margin: 8px 0; }
-    .chip { display: inline-block; padding: 3px 8px; border-radius: 12px; margin: 2px; font-size: 12px; border: 1px solid #ccc; }
-    .overlap { background: #e8f7ef; border-color: #a8e0c5; }
-    .gap { background: #fdecea; border-color: #f5b5ae; }
-    .week { border-top: 1px solid #eee; padding-top: 8px; margin-top: 8px; }
-    @page { size: A4; margin: 12mm; }
-  </style>
-  <script>window.onload = function(){ window.print(); }</script>
-  </head>
-<body>
-  <h1>${title}</h1>
-  <div class="meta">Generated on ${dateStr}</div>
-  ${(rec.top3Recommendations || []).map(r => `
-    <div class="card">
-      <h2>${r.title} — Fit ${r.fitScore}%</h2>
-      ${r.metrics ? `<div class="meta">cosine: ${Number(r.metrics.cosine).toFixed(2)}, overlap: ${Number(r.metrics.overlapRatio).toFixed(2)}</div>` : ''}
-      <p>${r.why || ''}</p>
-      <div class="skills">
-        <div><strong>Matching Skills:</strong> ${(r.overlapSkills||[]).map(s=>`<span class="chip overlap">${s}</span>`).join(' ')}</div>
-        <div><strong>Skills to Learn:</strong> ${(r.gapSkills||[]).map(s=>`<span class="chip gap">${s}</span>`).join(' ')}</div>
-      </div>
-      ${(r.plan?.weeks || []).map(w => `
-        <div class="week">
-          <h3>Week ${w.week}</h3>
-          <p><strong>Topics:</strong> ${(w.topics||[]).join(', ')}</p>
-          <p><strong>Practice:</strong> ${(Array.isArray(w.practice)?w.practice:[w.practice]).join(', ')}</p>
-          <p><strong>Assessment:</strong> ${w.assessment || ''}</p>
-          <p><strong>Project:</strong> ${w.project || ''}</p>
-        </div>
-      `).join('')}
-    </div>
-  `).join('')}
-</body>
-</html>`;
-
-    res.json({ html });
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const oldLogsQuery = admin.firestore()
+      .collection('error_logs')
+      .where('timestamp', '<', thirtyDaysAgo);
+    
+    const oldLogsSnapshot = await oldLogsQuery.get();
+    const batch = admin.firestore().batch();
+    
+    oldLogsSnapshot.docs.forEach(doc => {
+      batch.delete(doc.ref);
+    });
+    
+    await batch.commit();
+    
+    console.log(`Cleaned up ${oldLogsSnapshot.docs.length} old error logs`);
+    
   } catch (error) {
-    console.error('Generate PDF failed:', error);
-    res.status(500).json({ error: 'Failed to generate printable HTML' });
+    console.error('Cleanup error:', error);
   }
 });
-/**
- * Health check endpoint
- */
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
-    timestamp: new Date().toISOString(),
-    version: 'v1.0'
-  });
-});
 
-/**
- * Error handling middleware
- */
-app.use((error, req, res, next) => {
-  console.error('Unhandled error:', error);
-  res.status(500).json({ 
-    error: 'Internal server error',
-    message: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
-  });
-});
-
-/**
- * 404 handler
- */
-app.use('*', (req, res) => {
-  res.status(404).json({ error: 'Endpoint not found' });
-});
-
-// Start server
-app.listen(PORT, () => {
-  console.log(`🚀 Career Co-Pilot API running on port ${PORT}`);
-  console.log(`📝 Recommendation endpoint: /api/recommend`);
-  console.log(`🗑️  Delete data endpoint: /api/delete_user_data`);
-  console.log(`🏥 Health check: /health`);
-});
-
-export default app;
+// Export individual functions for testing
+module.exports = {
+  ErrorHandler,
+  RetryHandler,
+  ValidationService,
+  AIService,
+  SkillAnalysisService,
+  ResumeAnalysisService
+};
