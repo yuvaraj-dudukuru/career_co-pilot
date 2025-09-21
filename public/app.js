@@ -5,18 +5,19 @@
 
 // Firebase configuration (PLACEHOLDER - fill via Firebase Console/project config)
 const firebaseConfig = {
-  apiKey: "",
-  authDomain: "",
-  projectId: "",
-  storageBucket: "",
-  messagingSenderId: "",
-  appId: ""
+  apiKey: "AIzaSyCZ-0sEOwTFKcBPUG57lfJZcKPZqxg9fh8",
+  authDomain: "career-compass-2pbvp.firebaseapp.com",
+  projectId: "career-compass-2pbvp",
+  storageBucket: "career-compass-2pbvp.firebasestorage.app",
+  messagingSenderId: "302412499404",
+  appId: "1:302412499404:web:98989eacf9dddc8ff5f569",
+  measurementId: "G-L1D2E1762E"
 };
 
 // Initialize Firebase (safe guard if SDK loaded)
 if (typeof firebase !== 'undefined' && !firebase.apps?.length) {
   try { firebase.initializeApp(firebaseConfig); } catch (e) { console.warn('Firebase init failed:', e); }
-}
+}       
 
 // Global state
 let currentUser = null;
