@@ -4,6 +4,11 @@
  */
 
 // Firebase configuration (PLACEHOLDER - fill via Firebase Console/project config)
+
+import { initializeApp } from "firebase/app";
+import { getFirestore } from "firebase/firestore";
+
+
 const firebaseConfig = {
   apiKey: "AIzaSyCZ-0sEOwTFKcBPUG57lfJZcKPZqxg9fh8",
   authDomain: "career-compass-2pbvp.firebaseapp.com",
@@ -13,6 +18,13 @@ const firebaseConfig = {
   appId: "1:302412499404:web:98989eacf9dddc8ff5f569",
   measurementId: "G-L1D2E1762E"
 };
+
+const app = initializeApp(firebaseConfig);
+
+// ✅ Just get Firestore — don't create it again
+const db = getFirestore(app);
+
+export { db };
 
 // Initialize Firebase (safe guard if SDK loaded)
 if (typeof firebase !== 'undefined' && !firebase.apps?.length) {
