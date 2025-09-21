@@ -27,6 +27,7 @@ const {
 let db;
 try {
   db = safeInitializeFirestore();
+  console.log('Firebase Admin initialized successfully');
 } catch (error) {
   console.error('Failed to initialize Firestore:', error);
   const solution = handleFirestoreError(error, 'initialization');
@@ -733,6 +734,7 @@ exports.cleanupOldLogs = functions.pubsub.schedule('0 2 * * *').onRun(async (con
 });
 
 // Export individual functions for testing
+/*
 module.exports = {
   ErrorHandler,
   RetryHandler,
@@ -741,3 +743,4 @@ module.exports = {
   SkillAnalysisService,
   ResumeAnalysisService
 };
+*/

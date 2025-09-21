@@ -73,7 +73,7 @@ function deterministicPlanForRole(roleTitle, gapSkills, profile) {
     .replace(/[^a-z0-9]/g, '_')
     .replace(/_+/g, '_');
 
-  // Find matching role or use default
+  // Find matching role or use defaultTopics
   let roleKey = Object.keys(baseTopics).find(key => 
     normalizedRole.includes(key) || key.includes(normalizedRole)
   );
@@ -103,14 +103,14 @@ function deterministicPlanForRole(roleTitle, gapSkills, profile) {
     }
   }
 
-  const default = baseTopics[roleKey] || [
+  const defaultTopics = baseTopics[roleKey] || [
     ["Core concept 1", "Hands-on practice 1"],
     ["Core concept 2", "Hands-on practice 2"],
     ["Core concept 3", "Hands-on practice 3"],
     ["Capstone project", "Final deliverable"]
   ];
 
-  const weeks = default.map((w, idx) => ({
+  const weeks = defaultTopics.map((w, idx) => ({
     week: idx + 1,
     topics: [w[0]],
     practice: [w[1]],
