@@ -7,9 +7,31 @@ const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const cors = require('cors')({ origin: true });
+const { 
+  deterministicPlanForRole, 
+  buildDeterministicWhy, 
+  calculateFitScore, 
+  getOverlapAndGapSkills 
+} = require('./fallbackPlan');
+const { 
+  validatePlan, 
+  validateProfile, 
+  sanitizeProfile 
+} = require('./validation');
+const { 
+  safeInitializeFirestore, 
+  handleFirestoreError 
+} = require('./firestore-safeguards');
 
-// Initialize Firebase Admin
-admin.initializeApp();
+// Initialize Firebase Admin with safeguards
+let db;
+try {
+  db = safeInitializeFirestore();
+} catch (error) {
+  console.error('Failed to initialize Firestore:', error);
+  const solution = handleFirestoreError(error, 'initialization');
+  throw new Error(`Firestore initialization failed: ${solution.message}`);
+}
 
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || functions.config().gemini?.key);
@@ -92,71 +114,163 @@ class RetryHandler {
 
 class ValidationService {
   static validateProfile(profile) {
-    const errors = [];
-    
-    if (!profile.name || typeof profile.name !== 'string' || profile.name.trim().length < 2) {
-      errors.push('Name must be at least 2 characters long');
-    }
-    
-    if (!profile.education || typeof profile.education !== 'string') {
-      errors.push('Education level is required');
-    }
-    
-    if (!Array.isArray(profile.skills) || profile.skills.length === 0) {
-      errors.push('At least one skill is required');
-    }
-    
-    if (!Array.isArray(profile.interests) || profile.interests.length === 0) {
-      errors.push('At least one interest is required');
-    }
-    
-    if (!profile.weeklyTime || isNaN(profile.weeklyTime) || profile.weeklyTime < 1) {
-      errors.push('Weekly time commitment must be at least 1 hour');
-    }
-    
-    if (!profile.budget || !['free', 'low', 'any'].includes(profile.budget)) {
-      errors.push('Budget preference is required');
-    }
-    
-    if (!profile.language || !['en', 'hi'].includes(profile.language)) {
-      errors.push('Language must be English or Hindi');
-    }
-    
+    const result = validateProfile(profile);
     return {
-      isValid: errors.length === 0,
-      errors
+      isValid: result.isValid,
+      errors: result.isValid ? [] : [result.error]
     };
   }
   
   static sanitizeProfile(profile) {
-    return {
-      name: profile.name?.trim(),
-      education: profile.education?.trim(),
-      skills: profile.skills?.map(skill => skill.trim()).filter(skill => skill.length > 0),
-      interests: profile.interests?.map(interest => interest.trim()).filter(interest => interest.length > 0),
-      weeklyTime: parseInt(profile.weeklyTime),
-      budget: profile.budget,
-      language: profile.language
-    };
+    return sanitizeProfile(profile);
   }
 }
 
 class AIService {
   static async generateRecommendations(profile) {
+    // Check if Gemini API key is available
+    if (!process.env.GEMINI_API_KEY && !functions.config().gemini?.key) {
+      console.warn('Gemini API key not configured, using deterministic fallback');
+      return this.generateDeterministicRecommendations(profile);
+    }
+
     const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
     
-    const prompt = this.buildPrompt(profile);
+    // Try 1: Standard prompt
+    let planText = await this.callGeminiWithRetry(model, this.buildPrompt(profile));
+    let planJson = this.attemptParseResponse(planText);
     
-    try {
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const text = response.text();
-      
-      return this.parseResponse(text);
-    } catch (error) {
-      console.error('AI generation error:', error);
-      throw new Error('Failed to generate recommendations');
+    // Try 2: If parsing failed, use stricter prompt
+    if (!planJson) {
+      console.warn('First LLM attempt failed, trying with stricter prompt');
+      const strictPrompt = this.buildStrictPrompt(profile);
+      planText = await this.callGeminiWithRetry(model, strictPrompt);
+      planJson = this.attemptParseResponse(planText);
     }
+    
+    // Fallback: Use deterministic plan if LLM still fails
+    if (!planJson || !this.validatePlan(planJson)) {
+      console.warn('LLM plan invalid, using deterministic fallback');
+      return this.generateDeterministicRecommendations(profile);
+    }
+    
+    return planJson;
+  }
+
+  static async callGeminiWithRetry(model, prompt, maxRetries = 2) {
+    let lastError;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        return response.text();
+      } catch (error) {
+        lastError = error;
+        console.warn(`Gemini attempt ${attempt} failed:`, error.message);
+        
+        if (attempt < maxRetries) {
+          // Wait before retry
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        }
+      }
+    }
+    
+    throw lastError;
+  }
+
+  static attemptParseResponse(text) {
+    try {
+      const cleanedText = this.cleanupResponse(text);
+      const data = JSON.parse(cleanedText);
+      
+      // Validate response structure
+      if (!data.recommendations || !Array.isArray(data.recommendations)) {
+        return null;
+      }
+      
+      // Validate each recommendation
+      for (const rec of data.recommendations) {
+        if (!rec.title || !rec.fitScore || !rec.why) {
+          return null;
+        }
+        
+        // Validate plan structure
+        if (!rec.plan || !Array.isArray(rec.plan.weeks) || rec.plan.weeks.length !== 4) {
+          return null;
+        }
+      }
+      
+      return data;
+    } catch (error) {
+      console.warn('Response parsing failed:', error.message);
+      return null;
+    }
+  }
+
+  static cleanupResponse(text) {
+    if (!text) return '';
+    return text
+      .replace(/```json|```/gi, '')
+      .replace(/\n+/g, '\n')
+      .trim();
+  }
+
+  static validatePlan(plan) {
+    const result = validatePlan(plan);
+    return result.isValid;
+  }
+
+  static generateDeterministicRecommendations(profile) {
+    // Define common roles with their typical skills
+    const roles = [
+      {
+        title: "Frontend Developer",
+        skills: ["JavaScript", "HTML", "CSS", "React", "TypeScript", "Node.js", "Git", "Web Development"]
+      },
+      {
+        title: "Data Analyst", 
+        skills: ["SQL", "Python", "Excel", "Statistics", "Data Visualization", "R", "Tableau", "Analytics"]
+      },
+      {
+        title: "UI/UX Designer",
+        skills: ["Figma", "Adobe XD", "Sketch", "User Research", "Wireframing", "Prototyping", "Design Systems"]
+      },
+      {
+        title: "Backend Developer",
+        skills: ["Python", "Java", "Node.js", "SQL", "API Development", "Database Design", "Cloud Computing"]
+      },
+      {
+        title: "Product Manager",
+        skills: ["Project Management", "User Research", "Analytics", "Communication", "Strategy", "Agile", "Leadership"]
+      }
+    ];
+
+    // Calculate fit scores and generate recommendations
+    const recommendations = roles.map(role => {
+      const { overlapSkills, gapSkills } = getOverlapAndGapSkills(profile.skills, role.skills);
+      const fitScore = calculateFitScore(profile.skills, role.skills);
+      const why = buildDeterministicWhy(role.title, overlapSkills, gapSkills);
+      const plan = deterministicPlanForRole(role.title, gapSkills, profile);
+      
+      return {
+        roleId: role.title.toLowerCase().replace(/[^a-z0-9]/g, '_'),
+        title: role.title,
+        fitScore,
+        why,
+        overlapSkills,
+        gapSkills,
+        plan,
+        fallback: true
+      };
+    });
+
+    // Sort by fit score and return top 3
+    return {
+      recommendations: recommendations
+        .sort((a, b) => b.fitScore - a.fitScore)
+        .slice(0, 3)
+    };
   }
   
   static buildPrompt(profile) {
@@ -187,9 +301,30 @@ Provide recommendations in this EXACT JSON format:
           {
             "week": 1,
             "topics": ["Topic 1", "Topic 2"],
-            "practice": "Practice activity",
+            "practice": ["Practice activity"],
             "assessment": "Assessment task",
             "project": "Project description"
+          },
+          {
+            "week": 2,
+            "topics": ["Topic 3", "Topic 4"],
+            "practice": ["Practice activity 2"],
+            "assessment": "Assessment task 2",
+            "project": "Project description 2"
+          },
+          {
+            "week": 3,
+            "topics": ["Topic 5", "Topic 6"],
+            "practice": ["Practice activity 3"],
+            "assessment": "Assessment task 3",
+            "project": "Project description 3"
+          },
+          {
+            "week": 4,
+            "topics": ["Topic 7", "Topic 8"],
+            "practice": ["Practice activity 4"],
+            "assessment": "Assessment task 4",
+            "project": "Capstone project"
           }
         ]
       }
@@ -207,31 +342,47 @@ Focus on:
 Return ONLY valid JSON, no other text.
     `.trim();
   }
-  
-  static parseResponse(text) {
-    try {
-      // Clean the response text
-      const cleanedText = text.replace(/```json|```/g, '').trim();
-      const data = JSON.parse(cleanedText);
-      
-      // Validate response structure
-      if (!data.recommendations || !Array.isArray(data.recommendations)) {
-        throw new Error('Invalid response structure');
+
+  static buildStrictPrompt(profile) {
+    return `
+CRITICAL: You MUST return ONLY valid JSON. No explanations, no markdown, no extra text.
+
+Generate 3 career recommendations for this profile:
+
+Name: ${profile.name}
+Education: ${profile.education}
+Skills: ${profile.skills.join(', ')}
+Interests: ${profile.interests.join(', ')}
+Weekly Time: ${profile.weeklyTime} hours
+Budget: ${profile.budget}
+Language: ${profile.language}
+
+REQUIRED JSON FORMAT (EXACTLY 4 WEEKS PER ROLE):
+{
+  "recommendations": [
+    {
+      "roleId": "role-id",
+      "title": "Role Title",
+      "fitScore": 85,
+      "why": "Brief explanation",
+      "overlapSkills": ["skill1", "skill2"],
+      "gapSkills": ["skill3", "skill4"],
+      "plan": {
+        "weeks": [
+          {"week": 1, "topics": ["topic1"], "practice": ["practice1"], "assessment": "assessment1", "project": "project1"},
+          {"week": 2, "topics": ["topic2"], "practice": ["practice2"], "assessment": "assessment2", "project": "project2"},
+          {"week": 3, "topics": ["topic3"], "practice": ["practice3"], "assessment": "assessment3", "project": "project3"},
+          {"week": 4, "topics": ["topic4"], "practice": ["practice4"], "assessment": "assessment4", "project": "capstone"}
+        ]
       }
-      
-      // Validate each recommendation
-      data.recommendations.forEach((rec, index) => {
-        if (!rec.title || !rec.fitScore || !rec.why) {
-          throw new Error(`Invalid recommendation at index ${index}`);
-        }
-      });
-      
-      return data;
-    } catch (error) {
-      console.error('Response parsing error:', error);
-      throw new Error('Failed to parse AI response');
     }
+  ]
+}
+
+JSON ONLY. NO OTHER TEXT.
+    `.trim();
   }
+  
 }
 
 class SkillAnalysisService {
@@ -355,34 +506,39 @@ async function handleRecommendations(req, res) {
     // Sanitize profile
     const sanitizedProfile = ValidationService.sanitizeProfile(profile);
     
-    // Generate recommendations with retry
-    const recommendations = await RetryHandler.withRetry(async () => {
-      return await AIService.generateRecommendations(sanitizedProfile);
-    });
+    // Generate recommendations with built-in retry and fallback
+    const recommendations = await AIService.generateRecommendations(sanitizedProfile);
     
     // Add skill analysis
     const skillAnalysis = SkillAnalysisService.analyzeSkills(sanitizedProfile);
-    
-    // Save to Firestore
-    await admin.firestore().collection('users').doc(userId).set({
-      profile: sanitizedProfile,
-      recommendations: recommendations.recommendations,
-      skillAnalysis,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
-    
-    // Log analytics
-    await admin.firestore().collection('analytics').add({
-      userId,
-      event: 'recommendations_generated',
-      data: {
-        skillsCount: sanitizedProfile.skills.length,
-        interestsCount: sanitizedProfile.interests.length,
-        recommendationsCount: recommendations.recommendations.length
-      },
-      timestamp: admin.firestore.FieldValue.serverTimestamp()
-    });
+
+    // Save to Firestore with error handling
+    try {
+      await db.collection('users').doc(userId).set({
+        profile: sanitizedProfile,
+        recommendations: recommendations.recommendations,
+        skillAnalysis,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+      
+      // Log analytics
+      await db.collection('analytics').add({
+        userId,
+        event: 'recommendations_generated',
+        data: {
+          skillsCount: sanitizedProfile.skills.length,
+          interestsCount: sanitizedProfile.interests.length,
+          recommendationsCount: recommendations.recommendations.length
+        },
+        timestamp: admin.firestore.FieldValue.serverTimestamp()
+      });
+    } catch (firestoreError) {
+      console.error('Firestore save error:', firestoreError);
+      const solution = handleFirestoreError(firestoreError, 'save_user_data');
+      // Continue execution - don't fail the entire request for Firestore issues
+      console.warn('Continuing without Firestore save due to:', solution.message);
+    }
     
     res.json({
       success: true,
@@ -423,18 +579,24 @@ async function handleResumeAnalysis(req, res) {
     );
     
     // Update user profile with extracted skills
-    const userRef = admin.firestore().collection('users').doc(userId);
-    const userDoc = await userRef.get();
-    
-    if (userDoc.exists) {
-      const userData = userDoc.data();
-      const existingSkills = userData.profile?.skills || [];
-      const updatedSkills = [...new Set([...existingSkills, ...extractedSkills])];
+    try {
+      const userRef = db.collection('users').doc(userId);
+      const userDoc = await userRef.get();
       
-      await userRef.update({
-        'profile.skills': updatedSkills,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-      });
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        const existingSkills = userData.profile?.skills || [];
+        const updatedSkills = [...new Set([...existingSkills, ...extractedSkills])];
+        
+        await userRef.update({
+          'profile.skills': updatedSkills,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+      }
+    } catch (firestoreError) {
+      console.error('Firestore update error:', firestoreError);
+      const solution = handleFirestoreError(firestoreError, 'update_user_skills');
+      console.warn('Continuing without Firestore update due to:', solution.message);
     }
     
     res.json({
@@ -463,26 +625,32 @@ async function handleDeleteUserData(req, res) {
     const decodedToken = await admin.auth().verifyIdToken(idToken);
     const userId = decodedToken.uid;
     
-    // Delete user data from Firestore
-    await admin.firestore().collection('users').doc(userId).delete();
+    // Delete user data from Firestore with error handling
+    try {
+      await db.collection('users').doc(userId).delete();
+      
+      // Delete analytics data
+      const analyticsQuery = db
+        .collection('analytics')
+        .where('userId', '==', userId);
+      
+      const analyticsSnapshot = await analyticsQuery.get();
+      const batch = db.batch();
+      
+      analyticsSnapshot.docs.forEach(doc => {
+        batch.delete(doc.ref);
+      });
+      
+      await batch.commit();
+    } catch (firestoreError) {
+      console.error('Firestore delete error:', firestoreError);
+      const solution = handleFirestoreError(firestoreError, 'delete_user_data');
+      throw new Error(`Failed to delete user data: ${solution.message}`);
+    }
     
-    // Delete analytics data
-    const analyticsQuery = admin.firestore()
-      .collection('analytics')
-      .where('userId', '==', userId);
-    
-    const analyticsSnapshot = await analyticsQuery.get();
-    const batch = admin.firestore().batch();
-    
-    analyticsSnapshot.docs.forEach(doc => {
-      batch.delete(doc.ref);
-    });
-    
-    await batch.commit();
-    
-    res.json({
-      success: true,
-      message: 'All user data deleted successfully'
+    res.json({ 
+      success: true, 
+      message: 'All user data deleted successfully' 
     });
     
   } catch (error) {
@@ -494,10 +662,17 @@ async function handleDeleteUserData(req, res) {
 
 async function handleHealthCheck(req, res) {
   try {
-    // Check Firebase connection
-    await admin.firestore().collection('health').doc('check').set({
-      timestamp: admin.firestore.FieldValue.serverTimestamp()
-    });
+    // Check Firebase connection with error handling
+    let firestoreStatus = 'healthy';
+    try {
+      await db.collection('health').doc('check').set({
+        timestamp: admin.firestore.FieldValue.serverTimestamp()
+      });
+    } catch (firestoreError) {
+      console.error('Firestore health check error:', firestoreError);
+      const solution = handleFirestoreError(firestoreError, 'health_check');
+      firestoreStatus = 'error';
+    }
     
     // Check Gemini API (if key is available)
     let geminiStatus = 'not_configured';
@@ -511,19 +686,19 @@ async function handleHealthCheck(req, res) {
       }
     }
     
-    res.json({
-      status: 'OK',
+    res.json({ 
+      status: 'OK', 
       timestamp: new Date().toISOString(),
       version: 'v2.0',
       services: {
-        firestore: 'healthy',
+        firestore: firestoreStatus,
         gemini: geminiStatus
       }
     });
     
   } catch (error) {
     console.error('Health check error:', error);
-    res.status(500).json({
+    res.status(500).json({ 
       status: 'ERROR',
       timestamp: new Date().toISOString(),
       error: error.message
